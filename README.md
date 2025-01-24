@@ -1,4 +1,4 @@
-# GraphPlotUtility (Working Title)
+# NetGeo
 # Mission Statement
 The goal of this library is to provide a tool which accepts shape files and network files to create constrained, random coordinates for each data point. This can be useful for network and data scientists who wish to leverage Geographical Informational Systems (GIS) insights without compromising the privacy of their sources.
 # Installation
