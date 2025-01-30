@@ -33,6 +33,7 @@ This library uses the [GeoJSON standard](https://geojson.org) encoding for stori
 ```
 The full standard as listed on the Internet Engineering Task Force (IETF) website is here: https://datatracker.ietf.org/doc/html/rfc7946
 ## Functionality
+The main purpose of this library is to ambiguate GIS data while preserving meaningful analytic insights to some level of detail. Most of this functionality can be accessed through importing the netgeo package into your project. The `netgeo.py` file contains all the top-level functions intended for use in a larger projcet.
 ## Examples
 # Contributions and Licensing
 This project is licensed under the GNU General Public License Version 3.0 (full text can be found in the LICENSE file). We also adhere to the definition of "Open Source" per the Open Source Initiative: https://opensource.org/osd. However, as the project is still pre-release, we will not be accepting contributions at this time.
