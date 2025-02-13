@@ -1,31 +1,62 @@
+import pickle
+
+import networkx
 import fiona
-import json
 
-from networkx import Graph
-
-from type_definitions import Netwielder
+from type_definitions import LocalityObfuscatingNet
 
 
-def link(geo_fn: str, net_fn: str):
+def load_regions_from_files(region_files: list[str]) -> list[fiona.Feature]:
     """
-    Accepts GeoJSON/Shapefile name and parses it (using Fiona). Then accepts a filename for a valid NetworkX graph storage file (edge list, adjacency list, etc), which we use NetworkX to read. Optionally takes a .shx file which indexes the shapefile (the geo file must be .shp if a .shx file is provided)
+    Reads each file provided and convertes them into a single fiona Collection. The files can be ESRI shapefiles or GeoJSON files.
+    Inputs:
+        region_files (list[str]): The filesnames for each of the regions. The files are opened one at a time, so this list can have a mix of shapefiles and GeoJSON files.
+    Outputs:
+        A fiona Collection with each region represented as a fiona Geometry internally.
+    Raises:
+        Any errors fiona has in reading the file are passed up to the caller
     """
-    # Some parsing
-    colxn_f = fiona.open(geo_fn)
-    colxn = list(colxn_f)
-    print(colxn_f.driver)
+    features = list()
+    for filename in region_files:
+        features.append(list(fiona.open(filename)))
+    return features
 
-    colxn_f.close()
 
-    with open(net_fn, "rb") as json_f:
-        raw_network = json.load(json_f)
+def load_network_file(network_file: str) -> networkx.Graph:
+    """
+    Reads a file containing a pickled networkx Graph, unpickles it, and returns the resulting object.
+    Inputs:
+        network_file (str): The filename of the file containing the pickled graph
+    Outputs:
+        The unpickled networkx Graph
+    Raises:
+        If the file is not a pickled networkx Graph, raises a ValueError. Any errors in the unpickling process are also passed up to the caller.
+    """
+    with open(network_file, "r") as f:
+        graph = pickle.loads(f.read())
 
-    node_info = raw_network["nodes"]
-    network = Graph()
-    network.add_edges_from(raw_network["edges"])
+    if not isinstance(graph, networkx.Graph):
+        raise ValueError(f"Object specified in {network_file} could be read, but was not a NetworkX Graph")
 
-    return Netwielder(colxn, network, node_info)
+    return graph
+
+
+def load_all(region_files: list[str], network_file: str) -> LocalityObfuscatingNet:
+    """
+    Combines load_regions_from_files and load_network_file calls and calls the LocalityObfuscatingNet constructor with the resulting files, returning the LON
+    Inputs:
+        region_files (list[str]): The list of filenames of each region. See load_regions_from_files()
+        network_file (str): The filename of the network pickle. See load_network_file()
+    Outputs:
+        A LocalityObfuscatingNet with the loaded data added via the constructor
+    Raises:
+        If anything goes wrong during the reading or deserialization process, the error is passed up to the caller.
+    """
+    regions = load_regions_from_files(region_files)
+    network = load_network_file(network_file)
+
+    return LocalityObfuscatingNet(regions=regions, network=network)
 
 
 if __name__ == "__main__":
-    link("./examples/hudson_valley.geojson", "./examples/points.json")
+    print("Hello, measurable world!")

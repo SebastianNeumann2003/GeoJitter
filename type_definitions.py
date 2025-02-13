@@ -1,16 +1,20 @@
-import fiona
-import networkx
-
 import random
 import math
 from itertools import pairwise
+from typing import Callable
+import pickle
+
+import networkx as nx
+import geopandas as gpd
+import matplotlib.pyplot as plt
 
 __all__ = {
     "GeoDistance",
-    "Netwielder"
+    "LocalityObfuscatingNet"
 }
 
 
+# Unnecessary, see geopy package, which does this but better
 class GeoDistance:
     """
     A data structure which handles all the unit conversions for varying distances. Internally, all are stored in meters and converted on the way out.
@@ -43,6 +47,7 @@ class GeoDistance:
         return self._meters / (111320 * math.cos(starting_long / 90 * math.pi))
 
 
+# I think geopy could probably do this as well
 class BoundingBox:
     def __init__(self, coords: list[list[float]]):
         """
@@ -65,23 +70,20 @@ class BoundingBox:
         return (self.bottom_lat < point[0] < self.top_lat) and (self.left_long < point[1] < self.right_long)
 
 
-class Netwielder:
+class LocalityObfuscatingNet:
     """
-    The manager class that wields both the geometry and network files after they are linked. Contains all the functionality that requires both files to be present.
+    The manager class that holds both the geometry and network files after they are linked. Contains all the functionality that requires both data structures to be present.
     """
 
-    def __init__(self, shapes: fiona.Collection, network: networkx.Graph, node_info: dict):
+    def __init__(self, network: nx.Graph, accessor: Callable, regions: list):
         """
         By the time this class gets initialized, the geometry and graph have already been parsed by their respective libraries and turned into a common data structure.
         """
-        self.shapes = shapes
         self.graph = network
-        self.nodes = node_info
+        self.accessor = accessor
+        self.regions = regions
 
-    def point_in_polygon(self, long: float, lat: float, geometry: fiona.Geometry) -> bool:
-        assert isinstance(geometry, fiona.Geometry), "Provided geometry variable cannot be interpreted as a Geometry"
-        assert geometry.type == "Polygon", "Provided geometry is of valid type, but not a Polygon"
-
+    def point_in_polygon(self, long: float, lat: float, geometry) -> bool:
         bounding_box = BoundingBox(geometry.coordinates)
         if not bounding_box.point_inside((long, lat)):
             return False
@@ -91,7 +93,7 @@ class Netwielder:
 
         return len(relevant_edges) % 2 == 1
 
-    def ambiguate(self, regions: fiona.Collection, point_data, radius: GeoDistance = None, seed=None):
+    def _ambiguate(self, point_id: str | int, radius: float = 0, seed=None):
         """
         Accepts a collection of regions, matches point to region, then ambiguates that point to a random spot in the same region
         Also takes a seed for reproducability.
@@ -103,22 +105,50 @@ class Netwielder:
         if radius is None:
             radius = GeoDistance(100, "km")
 
-        long = point_data["long"]
-        lat = point_data["lat"]
-        region_id = point_data["region_id"]
+        long = self.accessor(point_id)["long"]
+        lat = self.accessor(point_id)["lat"]
+        region_id = self.accessor(point_id)["region"]
         region = None
 
-        for possible_region in regions:
+        for possible_region in self.regions:
             if possible_region.get("region_id", "") == region_id:
                 region = possible_region
 
         if region is None:
+            # TODO: Maybe we can figure it out ourselves
             raise Exception("Invalid region id")
 
         # Still doing a naive version for now
         deviation = (radius.meters * random.random(), 2 * math.pi * random.random())
 
-        # TODO: Refine to fit globe-earth conspiracy
         new_coordinate = (long + deviation[0] * math.sin(deviation[1]), lat + deviation[0] * math.cos(deviation[1]))
 
         return new_coordinate
+
+    def ambiguate_coordinates(self, radius):
+        """
+        Public-facing method which ambiguates every point provided in the network, while overwriting the original values.
+        """
+        for point in self.network.nodes:
+            self._ambiguate(point, radius=10)
+
+    def save_to(self, filename: str) -> str:
+        """
+        Saves a pickled version of this object to the provided file
+        """
+        with open(filename, "w") as f:
+            f.write(pickle.dumps(self))
+
+    def show(self):
+        """
+        Using geopandas and matplotlib, creates a static image of all the points and regions included in here.
+        Reflects the internal state of the LON (i.e. if the obfuscation has not happened yet, the rendering will show
+        the true points)
+        """
+        nodes = list(self.graph.nodes)
+
+        for node in nodes:
+            pass
+
+        for region in self.regions:
+            pass
