@@ -1,7 +1,5 @@
 import networkx
-import sys
 
-sys.path.append("..")
 from type_definitions import LocalityObfuscatingNetwork
 import netgeo
 

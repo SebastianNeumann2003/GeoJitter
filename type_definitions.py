@@ -5,8 +5,6 @@ from typing import Callable
 import pickle
 
 import networkx as nx
-import geopandas as gpd
-import matplotlib.pyplot as plt
 
 __all__ = {
     "GeoDistance",
@@ -47,7 +45,6 @@ class GeoDistance:
         return self._meters / (111320 * math.cos(starting_long / 90 * math.pi))
 
 
-# I think geopy could probably do this as well
 class BoundingBox:
     def __init__(self, coords: list[list[float]]):
         """
@@ -66,6 +63,11 @@ class BoundingBox:
         self.top_lat = max(lats)
         self.bottom_lat = min(lats)
 
+    def get_random_point(self):
+        long = random.random(self.left_long, self.right_long)
+        lat = random.random(self.bottom_lat, self.top_lat)
+        return (long, lat)
+
     def point_inside(self, point: tuple[float, float]) -> bool:
         return (self.bottom_lat < point[0] < self.top_lat) and (self.left_long < point[1] < self.right_long)
 
@@ -75,13 +77,25 @@ class LocalityObfuscatingNet:
     The manager class that holds both the geometry and network files after they are linked. Contains all the functionality that requires both data structures to be present.
     """
 
-    def __init__(self, network: nx.Graph, accessor: Callable, regions: list):
+    def __init__(self, network: nx.Graph, accessor: Callable, regions: list, graph_has_coords=True):
         """
         By the time this class gets initialized, the geometry and graph have already been parsed by their respective libraries and turned into a common data structure.
         """
         self.graph = network
         self.accessor = accessor
         self.regions = regions
+
+        if not graph_has_coords:
+            self.generate_coords()
+
+    def generate_coords(self):
+        for point in self.graph.nodes:
+            region = self.regions[self.accessor(point)]
+
+            bounding_box = BoundingBox(region.coordinates)
+            new_point = bounding_box.get_random_point()
+            while not self.point_in_polygon(*new_point, region):
+                new_point = bounding_box.get_random_point()
 
     def point_in_polygon(self, long: float, lat: float, geometry) -> bool:
         bounding_box = BoundingBox(geometry.coordinates)
@@ -129,7 +143,7 @@ class LocalityObfuscatingNet:
         """
         Public-facing method which ambiguates every point provided in the network, while overwriting the original values.
         """
-        for point in self.network.nodes:
+        for point in self.graph.nodes:
             self._ambiguate(point, radius=10)
 
     def save_to(self, filename: str) -> str:
