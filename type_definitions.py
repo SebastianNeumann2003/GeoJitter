@@ -7,42 +7,8 @@ import pickle
 import networkx as nx
 
 __all__ = {
-    "GeoDistance",
     "LocalityObfuscatingNet"
 }
-
-
-# Unnecessary, see geopy package, which does this but better
-class GeoDistance:
-    """
-    A data structure which handles all the unit conversions for varying distances. Internally, all are stored in meters and converted on the way out.
-    """
-
-    def __init__(self, quantity: float, units: str):
-        self.original_quantity = quantity
-        self.original_units = units
-
-        match units:
-            case "km":
-                self._meters = 1000 * quantity
-            case _:
-                self._meters = 0
-        # TODO: Make more of these
-
-    def meters(self):
-        return self._meters
-
-    def feet(self):
-        return self._meters * 3.28084
-
-    def kilometers(self):
-        return self._meters / 1000
-
-    def degrees_lat(self):
-        return self._meters / 110574  # Approximate
-
-    def degrees_long(self, starting_long):
-        return self._meters / (111320 * math.cos(starting_long / 90 * math.pi))
 
 
 class BoundingBox:
@@ -116,7 +82,7 @@ class LocalityObfuscatingNet:
 
         for node, data in self.graph.nodes(data=True):
             # Get lat/long from dictionary, or set None if missing
-            lat, long = nodes.get(node, (None, None))
+            long, lat = nodes.get(node, (None, None))
 
             # Copy old attributes and add lat/long
             new_graph.add_node(node, **data, lat=lat, long=long)
