@@ -5,6 +5,7 @@ from typing import Callable
 import pickle
 
 import networkx as nx
+import shapely
 
 __all__ = {
     "LocalityObfuscatingNet"
@@ -54,14 +55,14 @@ class LocalityObfuscatingNet:
         if not graph_has_coords:
             self.graph = self.generate_coords()
 
-    def extract_coordinates(self, geometry):
+    def extract_coordinates(self, geometry: shapely.Polygon | shapely.MultiPolygon):
         if geometry.geom_type == "Polygon":
             return list(geometry.exterior.coords)  # Single list of coordinates
         elif geometry.geom_type == "MultiPolygon":
             return list([coord for poly in geometry.geoms for coord in poly.exterior.coords])
         return None  # Handle other cases if needed
 
-    def generate_coords(self):
+    def generate_coords(self) -> nx.Graph:
         new_graph = nx.Graph()
         nodes = {}
         for point in self.graph.nodes:
@@ -90,7 +91,6 @@ class LocalityObfuscatingNet:
         # Copy edges from the original graph
         new_graph.add_edges_from(self.graph.edges(data=True))
 
-        self.graph = new_graph
         return new_graph
 
     def point_in_polygon(self, long: float, lat: float, geometry) -> bool:

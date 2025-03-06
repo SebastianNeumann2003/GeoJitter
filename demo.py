@@ -16,7 +16,7 @@ quick_ref: dict[str, shapely.Polygon] = dict(zip(regions["neighborho"], regions[
 print(type(list(quick_ref.values())[0]))
 
 
-def point_to_neighborhood(point):
+def point_to_neighborhood(point: str | int) -> str:
     return job_network.nodes[point]["neighborhood"]
 
 
