@@ -1,31 +1,40 @@
 import pickle
 
 import geopandas as gpd
+import matplotlib.pyplot as plt
+import networkx as nx
 
 from type_definitions import LocalityObfuscatingNet
 
 with open("./data_vault/test_network1.pkl", "rb") as f:
     job_network = pickle.load(f)
 
-for e, datadict in job_network.nodes.items():
-    print(e, datadict)
-print()
-
 regions: gpd.GeoDataFrame = gpd.read_file(".\\data_vault\\Boston_Neighborhood_Boundaries_Approximated_by_2020_Census_Tracts.shp").get(['neighborho', 'geometry'])
-print(list(regions.columns))
 
-quick_ref = {}
-for name, geom in regions.items():
-    quick_ref[name] = geom
+quick_ref = dict(zip(regions["neighborho"], regions["geometry"]))
 
 
-def translate_fn(point):
-    return job_network.keys()[point].data("neighborhood")
+def point_to_neighborhood(point):
+    return job_network.nodes[point]["neighborhood"]
 
 
-# job_network = netgeo.dereference(keyed_network=job_network, data=points_dict)
-# Potential alternative to a contiguous pickled graph.
+geo_network = LocalityObfuscatingNet(regions=quick_ref, network=job_network, accessor=point_to_neighborhood, graph_has_coords=False)
 
-geo_network = LocalityObfuscatingNet(regions=regions, network=job_network, accessor=lambda point_id: translate_fn(point_id))
+obfuscated_network = geo_network.graph
 
-obfuscated_network = geo_network.ambiguate_coordinates(10)
+pos = {node: (data['long'], data['lat']) for node, data in obfuscated_network.nodes(data=True)}
+print(pos)
+
+fig, ax = plt.subplots(figsize=(10, 10))
+
+# Step 3: Plot the regions (GeoDataFrame)
+regions.plot(ax=ax, color="lightgray", edgecolor="black", alpha=0.5)  # Neighborhood polygons
+
+# Step 4: Draw the graph on top
+nx.draw(obfuscated_network, pos, ax=ax, node_size=50, edge_color="blue", node_color="red", with_labels=True, font_size=8)
+
+# Step 5: Customize and show
+plt.xlabel("Longitude")
+plt.ylabel("Latitude")
+plt.title("NetworkX Graph Over Neighborhood Regions")
+plt.show()

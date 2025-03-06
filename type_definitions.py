@@ -64,8 +64,8 @@ class BoundingBox:
         self.bottom_lat = min(lats)
 
     def get_random_point(self):
-        long = random.random(self.left_long, self.right_long)
-        lat = random.random(self.bottom_lat, self.top_lat)
+        long = self.left_long + (self.right_long - self.left_long) * random.random()
+        lat = self.bottom_lat + (self.top_lat - self.bottom_lat) * random.random()
         return (long, lat)
 
     def point_inside(self, point: tuple[float, float]) -> bool:
@@ -86,23 +86,51 @@ class LocalityObfuscatingNet:
         self.regions = regions
 
         if not graph_has_coords:
-            self.generate_coords()
+            self.graph = self.generate_coords()
+
+    def extract_coordinates(self, geometry):
+        if geometry.geom_type == "Polygon":
+            return list(geometry.exterior.coords)  # Single list of coordinates
+        elif geometry.geom_type == "MultiPolygon":
+            return list([coord for poly in geometry.geoms for coord in poly.exterior.coords])
+        return None  # Handle other cases if needed
 
     def generate_coords(self):
+        new_graph = nx.Graph()
+        nodes = {}
         for point in self.graph.nodes:
             region = self.regions[self.accessor(point)]
 
-            bounding_box = BoundingBox(region.coordinates)
+            bounding_box = BoundingBox(self.extract_coordinates(region))
+
             new_point = bounding_box.get_random_point()
-            while not self.point_in_polygon(*new_point, region):
+            i = 0
+            while not self.point_in_polygon(*new_point, region) and i < 50:
                 new_point = bounding_box.get_random_point()
+                i += 1
+
+            if i == 50:
+                print("Exceeded iterations")
+
+            nodes[point] = new_point
+
+        for node, data in self.graph.nodes(data=True):
+            # Get lat/long from dictionary, or set None if missing
+            lat, long = nodes.get(node, (None, None))
+
+            # Copy old attributes and add lat/long
+            new_graph.add_node(node, **data, lat=lat, long=long)
+
+        # Copy edges from the original graph
+        new_graph.add_edges_from(self.graph.edges(data=True))
+
+        self.graph = new_graph
+        return new_graph
 
     def point_in_polygon(self, long: float, lat: float, geometry) -> bool:
-        bounding_box = BoundingBox(geometry.coordinates)
-        if not bounding_box.point_inside((long, lat)):
-            return False
-
-        edges = list(pairwise(geometry.coordinates)).append((geometry.coordinates[-1], geometry.coordinates[0]))
+        coords = self.extract_coordinates(geometry)
+        edges = list(pairwise(coords))
+        edges.append((coords[-1], coords[0]))
         relevant_edges = [edge for edge in edges if (min(edge[0][1], edge[1][1]) < lat < max(edge[0][1], edge[1][1])) and (edge[0][0] > long or edge[1][0] > long)]
 
         return len(relevant_edges) % 2 == 1
