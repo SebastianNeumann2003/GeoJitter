@@ -4,6 +4,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import networkx as nx
 import shapely
+import contextily as ctx
 
 from type_definitions import LocalityObfuscatingNet
 
@@ -27,6 +28,9 @@ obfuscated_network = geo_network.graph
 pos = {node: (data['long'], data['lat']) for node, data in obfuscated_network.nodes(data=True)}
 print(pos)
 
+gdf_merc = regions.to_crs(epsg=3857)
+pos_web_mercator = {node: (geom.centroid.x, geom.centroid.y) for node, geom in zip(pos.keys(), regions.geometry)}
+
 fig, ax = plt.subplots(figsize=(10, 10))
 
 # Step 3: Plot the regions (GeoDataFrame)
@@ -34,6 +38,8 @@ regions.plot(ax=ax, color="lightgray", edgecolor="black", alpha=0.5)  # Neighbor
 
 # Step 4: Draw the graph on top
 nx.draw(obfuscated_network, pos, ax=ax, node_size=50, edge_color="blue", node_color="red", with_labels=True, font_size=8)
+
+ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
 
 # Step 5: Customize and show
 plt.xlabel("Longitude")
