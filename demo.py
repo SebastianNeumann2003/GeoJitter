@@ -9,7 +9,7 @@ import contextily as ctx
 from type_definitions import LocalityObfuscatingNet
 
 with open("./data_vault/test_network1.pkl", "rb") as f:
-    job_network: nx.Graph = pickle.load(f)
+    original_network: nx.Graph = pickle.load(f)
 
 regions: gpd.GeoDataFrame = gpd.read_file(".\\data_vault\\Boston_Neighborhood_Boundaries_Approximated_by_2020_Census_Tracts.shp").get(['neighborho', 'geometry'])
 
@@ -18,18 +18,15 @@ print(type(list(quick_ref.values())[0]))
 
 
 def point_to_neighborhood(point: str | int) -> str:
-    return job_network.nodes[point]["neighborhood"]
+    return original_network.nodes[point]["neighborhood"]
 
 
-geo_network = LocalityObfuscatingNet(regions=quick_ref, network=job_network, accessor=point_to_neighborhood, graph_has_coords=False)
+geo_network = LocalityObfuscatingNet(regions=quick_ref, network=original_network, accessor=point_to_neighborhood, graph_has_coords=False)
 
 obfuscated_network = geo_network.graph
 
 pos = {node: (data['long'], data['lat']) for node, data in obfuscated_network.nodes(data=True)}
 print(pos)
-
-gdf_merc = regions.to_crs(epsg=3857)
-pos_web_mercator = {node: (geom.centroid.x, geom.centroid.y) for node, geom in zip(pos.keys(), regions.geometry)}
 
 fig, ax = plt.subplots(figsize=(10, 10))
 

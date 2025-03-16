@@ -6,6 +6,7 @@ import pickle
 
 import networkx as nx
 import shapely
+import geopandas as gpd
 
 __all__ = {
     "LocalityObfuscatingNet"
@@ -37,6 +38,26 @@ class BoundingBox:
 
     def point_inside(self, point: tuple[float, float]) -> bool:
         return (self.bottom_lat < point[0] < self.top_lat) and (self.left_long < point[1] < self.right_long)
+
+
+def obfuscate(regions: gpd.GeoDataFrame, network: nx.Graph, accessor: Callable) -> None:
+    """
+    The obfuscator function. Accepts network and region information, along with how to get that info out, then turns it into a new, obfuscated graph
+    INPUTS:
+        - regions (geopandas.GeoDataFrame): The different regions points could fall into. Any obfuscations happen within the same region
+        - network (networkx.Graph): The network, containing the region data, that the function will assign points to. Any existing lat or long attributes will be overwritten. To avoid this, see `obfuscated`
+        - accessor (Callable): This is a function which accepts the name of a node in the provided graph, then accesses the "region"
+    """
+    pass
+
+
+def obfuscated(regions: gpd.GeoDataFrame, network: nx.Graph, accessor: Callable) -> nx.Graph:
+    """
+    Alternate form of the obfuscator, which creates a new copy of the graph without modifying the old one. This function has no external writes, only external reads.
+    """
+    new_graph = network.copy()
+    obfuscate(regions, new_graph, accessor)
+    return new_graph
 
 
 class LocalityObfuscatingNet:
