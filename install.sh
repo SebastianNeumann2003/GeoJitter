@@ -1,26 +1,18 @@
-#!/usr/bin/env bash
-py --version && pyinstall() ||
-python --version && pythoninstall() ||
-python3 --version && python3install() ||
-echo "Errors occured during installation"
-
-pyinstall() {
-	py -m venv ./netgeo_venv &&
-	./netgeo_venv/Scripts/activate
-	py -m pip install -r requirements.txt
-	echo "Install complete"
-}
-
-pythoninstall() {
-	python -m venv ./netgeo_venv &&
-	./netgeo_venv/Scripts/activate
-	python -m pip install -r requirements.txt
-	echo "Install complete"
-}
-
-python3install() {
-	python3 -m venv ./netgeo_venv &&
-	./netgeo_venv/Scripts/activate
-	python3 -m pip install -r requirements.txt
-	echo "Install complete"
-}
+if command -v py &> /dev/null; then
+    py -m venv ./netgeo_venv &&
+    source ./netgeo_venv/Scripts/activate
+    py -m pip install -r requirements.txt
+    echo "Install complete"
+elif command -v python &> /dev/null; then
+    python -m venv ./netgeo_venv &&
+    source ./netgeo_venv/Scripts/activate
+    python -m pip install -r requirements.txt
+    echo "Install complete"
+elif command -v python3 &> /dev/null; then
+    python3 -m venv ./netgeo_venv &&
+    source ./netgeo_venv/Scripts/activate
+    python3 -m pip install -r requirements.txt
+    echo "Install complete"
+else
+    echo "Could not find a valid Python installation"
+fi

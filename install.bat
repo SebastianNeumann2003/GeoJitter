@@ -1,26 +1,26 @@
 @echo off
-py --version 1>nul && goto :pyinstall ||^
-python --version 1>nul && goto :pythoninstall ||^
-python3 --version 1>nul && goto :python3install
-echo Errors encountered during install
+setlocal
 
-:pyinstall
-py -m venv .\netgeo_venv &&^
-.\netgeo_venv\Scripts\activate &&^
-py -m pip install -r requirements.txt
-goto :endofscript
+:: Try to find a Python installation
+where py >nul 2>nul && set PYTHON_CMD=py || (
+    where python >nul 2>nul && set PYTHON_CMD=python || (
+        where python3 >nul 2>nul && set PYTHON_CMD=python3 || (
+            echo Could not find a valid Python installation
+            exit /b 1
+        )
+    )
+)
 
-:pythoninstall
-python -m venv .\netgeo_venv &&^
-.\netgeo_venv\Scripts\activate &&^
-python -m pip install -r requirements.txt
-goto :endofscript
+:: Create virtual environment
+%PYTHON_CMD% -m venv netgeo_venv && (
+    :: Activate virtual environment
+    call netgeo_venv\Scripts\activate && (
+        :: Install dependencies
+        %PYTHON_CMD% -m pip install -r requirements.txt && (
+            echo Install complete
+            exit /b 0
+        ) || echo Failed to install requirements
+    ) || echo Failed to activate virtual environment
+) || echo Failed to create virtual environment
 
-:python3install
-python3 -m venv .\netgeo_venv &&^
-.\netgeo_venv\Scripts\activate &&^
-python3 -m pip install -r requirements.txt
-goto :endofscript
-
-:endofscript
-echo Install complete.
+exit /b 1
