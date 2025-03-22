@@ -1,61 +1,142 @@
+import random
 import pickle
+import math
+from typing import Callable
 
-import networkx
-import fiona
+import networkx as nx
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import shapely as shp
+import contextily as ctx
+import scipy.stats as stat
 
-from type_definitions import LocalityObfuscatingNet
 
-
-def load_regions_from_files(region_files: list[str]) -> list[fiona.Feature]:
+def obfuscated_network(
+        regions: gpd.GeoDataFrame,
+        network: nx.Graph,
+        region_accessor: Callable,
+        point_converter: Callable,
+        strategy: Callable,
+        fail_graceful: bool = True
+) -> nx.Graph:
     """
-    Reads each file provided and convertes them into a single fiona Collection. The files can be ESRI shapefiles or GeoJSON files.
+    Creates a new network based on given information with the points obfuscated.
     Inputs:
-        region_files (list[str]): The filesnames for each of the regions. The files are opened one at a time, so this list can have a mix of shapefiles and GeoJSON files.
+    - regions (geopandas.GeoDataFrame): The collection of regions of interest to the network.
+    - network (networkx.Graph): The graph containing all the metadata of the points and how they are connected to one another.
+    - region_accessor (Callable): This is a function which, when provided a node on the provided network, return the name of the region that point is contained in. In order for this function to work properly, the returned region names must match the GeoDataFrame provided in the "regions" argument.
+    - point_converter (Callable): This is a function which, when provided a node in the provided network, returns a shapely.Point for use in the obfuscation process.
+    - strategy (Callable): This is a function which, when provided a shapely.Point and shapely.Polygon (or shapely.MultiPolygon) returns an obfuscated shapely.Point. Alternatively, if the function fails, it should return None.
+    - fail_graceful (bool): Default True. If this option is enabled, the function will continue on if the strategy function fails to return a valid point (i.e. it returns None). However, any exceptoins from within the strategy will not be caught.
     Outputs:
-        A fiona Collection with each region represented as a fiona Geometry internally.
-    Raises:
-        Any errors fiona has in reading the file are passed up to the caller
+    - new_graph (networkx.Graph): The new graph, with all the original data preserved, but with each node being assigned new latitude and longitude coordinates.
     """
-    features = list()
-    for filename in region_files:
-        features.append(list(fiona.open(filename)))
-    return features
+    nodes = {}
+    for point in network.nodes:
+        region = regions[region_accessor(point)]
+        old_point = point_converter(point)
+
+        new_point = strategy(old_point, region)
+
+        if new_point is None:
+            if fail_graceful:
+                print(f"Unable to obfuscate point {point}. Continuing...")
+                nodes[point] = old_point
+            else:
+                raise Exception(f"Unable to obfuscate point {point}")
+        else:
+            nodes[point] = new_point
+
+    new_graph = nx.Graph()
+    for node, data in network.nodes(data=True):
+        long, lat = nodes.get(node, (None, None))
+
+        new_graph.add_node(node, **data, lat=lat, long=long)
+
+    new_graph.add_edges_from(network.edges(data=True))
+    return new_graph
 
 
-def load_network_file(network_file: str) -> networkx.Graph:
+# Will eventually be put in strategies.py
+def rand_point_in_region(
+        distribution: stat.rv_generic = stat.uniform,
+        max_iter: int = 50
+) -> Callable:
     """
-    Reads a file containing a pickled networkx Graph, unpickles it, and returns the resulting object.
+    Constructs a function which accepts a point and a region, which returns a random point in the region. The provided point is discarded. This is meant to bind into the obfuscate_network function as an available strategy, which is why it needs to be able to accept a point.
+    NOTE: This uses a technique known as "Currying" or "Partial Application". If you are unfamiliar, we recommend doing a bit of reading on the topic: https://en.wikipedia.org/wiki/Currying.
     Inputs:
-        network_file (str): The filename of the file containing the pickled graph
+    - distribution (scipy.stats.rv_generic): A probability distribution, which will be used in the returned function to generate a point
+    - max_iter (int): Default 50. The number of times the returned function will attempt to find a point in the region provided to it. If it cannot find a point in time, it will return None.
     Outputs:
-        The unpickled networkx Graph
-    Raises:
-        If the file is not a pickled networkx Graph, raises a ValueError. Any errors in the unpickling process are also passed up to the caller.
+    - point_gen (Callable[shapely.Point, shapely.Polygon | shapely.MultiPolygon -> shapely.Point]): A function which expects a point and a region, which (when called) outputs a random point in the region.
     """
-    with open(network_file, "r") as f:
-        graph = pickle.loads(f.read())
+    def point_gen(point: shp.Point, region: shp.Polygon | shp.MultiPolygon) -> shp.Point:
+        if region.geom_type == "MultiPolygon":
+            # TODO: It's possible there are better ways to choose the region than this. Will likely modify the behavior of the distribution
+            # The first place this comes to mind would be where different sub-polygons have different areas. This would treat them all equally, giving outsized representation to smaller regions
+            focused_region = random.choice(region.geoms)
+        elif region.geom_type == "Polygon":
+            focused_region = region
+        else:
+            raise TypeError(f"Cannot find a random point in object of type {type(region)}")
 
-    if not isinstance(graph, networkx.Graph):
-        raise ValueError(f"Object specified in {network_file} could be read, but was not a NetworkX Graph")
+        minx, miny, maxx, maxy = focused_region.bounds
 
-    return graph
+        for _ in range(max_iter):
+            cpx = distribution.rvs(loc=minx, scale=maxx - minx)
+            cpy = distribution.rvs(loc=miny, scale=maxy - miny)
+            candidate_point = shp.Point(cpx, cpy)
+
+            if focused_region.contains(candidate_point):
+                return candidate_point
+
+        print("Exceeded iterations")
+        return None
+
+    return point_gen
 
 
-def load_all(region_files: list[str], network_file: str) -> LocalityObfuscatingNet:
+def rand_point_by_radius(
+    starting_point: shp.Point,
+    radius: float,
+    distribution: stat.rv_generic = stat.uniform
+) -> shp.Point:
     """
-    Combines load_regions_from_files and load_network_file calls and calls the LocalityObfuscatingNet constructor with the resulting files, returning the LON
+    Based on a starting point, returns a random point within the provided radius of the starting point.
     Inputs:
-        region_files (list[str]): The list of filenames of each region. See load_regions_from_files()
-        network_file (str): The filename of the network pickle. See load_network_file()
+    - starting_point (shapely.Point): The anchor point around which the random point will be generated
+    - radius (float): The maximum allowable distance from the start point that a point could be generated
+    - distribution (scipy.stats.rv_generic): The distribution function (defaults to a uniform distribution) used to generate the new point.
     Outputs:
-        A LocalityObfuscatingNet with the loaded data added via the constructor
-    Raises:
-        If anything goes wrong during the reading or deserialization process, the error is passed up to the caller.
+    - shapely.Point with the new coordinate, within the specified radius from the starting point
     """
-    regions = load_regions_from_files(region_files)
-    network = load_network_file(network_file)
+    r = distribution.rvs(loc=0, scale=radius)
+    theta = distribution.rvs(loc=0, scale=2*math.pi)
 
-    return LocalityObfuscatingNet(regions=regions, network=network)
+    return shp.Point(starting_point.x + r*math.cos(theta), starting_point.y + r*math.sin(theta))
+
+
+def display(regions: gpd.GeoDataFrame, network: nx.Graph, title: str = None) -> None:
+    """
+    Overlays a collection of regions and a network over a world map, then displays the plot.
+    Inputs:
+    - regions (geopandas.GeoDataFrame): The collection of regions to be shown on the overlay
+    - network (networkx.Graph): The graph that will be displayed on top of the region plot
+    - title (str): If provided, the title of the plot that will be displayed above the image.
+    Outpus: None
+    Side Effects: A pop-up window will open with the completed plot displayed. Code execution will continue while the pop-up window is open, but the program will not exit until all pop-up windows are closed.
+    """
+    pos = {node: (data['long'], data['lat']) for node, data in network.nodes(data=True)}
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    regions.plot(ax=ax, color="lightgray", edge_color="black", alpha=0.5)
+    nx.draw(network, pos, ax=ax, node_size=50, edge_color="blue", node_color="red", with_labels=True, font_size=8)
+    ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
+
+    plt.title(title)
+    plt.show()
 
 
 if __name__ == "__main__":
