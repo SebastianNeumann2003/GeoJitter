@@ -1,5 +1,4 @@
 import random
-import pickle
 import math
 from typing import Callable
 
@@ -32,8 +31,10 @@ def obfuscated_network(
     - new_graph (networkx.Graph): The new graph, with all the original data preserved, but with each node being assigned new latitude and longitude coordinates.
     """
     nodes = {}
-    for point in network.nodes:
-        region = regions[region_accessor(point)]
+    for point, data in network.nodes(data=True):
+        nodes[point] = data
+
+        region = region_accessor(point)
         old_point = point_converter(point)
 
         new_point = strategy(old_point, region)
@@ -41,17 +42,17 @@ def obfuscated_network(
         if new_point is None:
             if fail_graceful:
                 print(f"Unable to obfuscate point {point}. Continuing...")
-                nodes[point] = old_point
+                nodes[point]["long"] = 0
+                nodes[point]["lat"] = 0
             else:
                 raise Exception(f"Unable to obfuscate point {point}")
         else:
-            nodes[point] = new_point
+            nodes[point]["long"] = new_point.x
+            nodes[point]["lat"] = new_point.y
 
     new_graph = nx.Graph()
-    for node, data in network.nodes(data=True):
-        long, lat = nodes.get(node, (None, None))
-
-        new_graph.add_node(node, **data, lat=lat, long=long)
+    for node, data in nodes.items():
+        new_graph.add_node(node, **data)
 
     new_graph.add_edges_from(network.edges(data=True))
     return new_graph
@@ -59,7 +60,7 @@ def obfuscated_network(
 
 # Will eventually be put in strategies.py
 def rand_point_in_region(
-        distribution: stat.rv_generic = stat.uniform,
+        distribution=stat.uniform,
         max_iter: int = 50
 ) -> Callable:
     """
@@ -100,7 +101,7 @@ def rand_point_in_region(
 def rand_point_by_radius(
     starting_point: shp.Point,
     radius: float,
-    distribution: stat.rv_generic = stat.uniform
+    distribution=stat.uniform
 ) -> shp.Point:
     """
     Based on a starting point, returns a random point within the provided radius of the starting point.
@@ -112,7 +113,7 @@ def rand_point_by_radius(
     - shapely.Point with the new coordinate, within the specified radius from the starting point
     """
     r = distribution.rvs(loc=0, scale=radius)
-    theta = distribution.rvs(loc=0, scale=2*math.pi)
+    theta = distribution.rvs(loc=0, scale=2 * math.pi)
 
     return shp.Point(starting_point.x + r*math.cos(theta), starting_point.y + r*math.sin(theta))
 
@@ -131,7 +132,7 @@ def display(regions: gpd.GeoDataFrame, network: nx.Graph, title: str = None) -> 
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
-    regions.plot(ax=ax, color="lightgray", edge_color="black", alpha=0.5)
+    regions.plot(ax=ax, color="lightgray", edgecolor="black", alpha=0.5)
     nx.draw(network, pos, ax=ax, node_size=50, edge_color="blue", node_color="red", with_labels=True, font_size=8)
     ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
 
