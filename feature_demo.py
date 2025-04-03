@@ -14,7 +14,6 @@ with open("./data_vault/test_network1.pkl", "rb") as f:
 regions: gpd.GeoDataFrame = gpd.read_file(".\\data_vault\\Boston_Neighborhood_Boundaries_Approximated_by_2020_Census_Tracts.shp").get(['neighborho', 'geometry'])
 
 quick_ref: dict[str, shapely.Polygon] = dict(zip(regions["neighborho"], regions["geometry"]))
-print(type(list(quick_ref.values())[0]))
 
 
 def point_to_neighborhood(point: str | int) -> str:
@@ -26,7 +25,6 @@ geo_network = LocalityObfuscatingNet(regions=quick_ref, network=original_network
 obfuscated_network = geo_network.graph
 
 pos = {node: (data['long'], data['lat']) for node, data in obfuscated_network.nodes(data=True)}
-print(pos)
 
 fig, ax = plt.subplots(figsize=(10, 10))
 
