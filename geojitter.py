@@ -26,7 +26,7 @@ def obfuscated_network(
     - region_accessor (Callable): This is a function which, when provided a node on the provided network, return the name of the region that point is contained in. In order for this function to work properly, the returned region names must match the GeoDataFrame provided in the "regions" argument.
     - point_converter (Callable): This is a function which, when provided a node in the provided network, returns a shapely.Point for use in the obfuscation process.
     - strategy (Callable): This is a function which, when provided a shapely.Point and shapely.Polygon (or shapely.MultiPolygon) returns an obfuscated shapely.Point. Alternatively, if the function fails, it should return None.
-    - fail_graceful (bool): Default True. If this option is enabled, the function will continue on if the strategy function fails to return a valid point (i.e. it returns None). However, any exceptoins from within the strategy will not be caught.
+    - fail_graceful (bool): Default True. If this option is enabled, a failure from the strategy function will remove that node from the network, and the program will continue. These failures will be reported in the log file. If fail_graceful is false, any error raised by the strategy function will halt the program.
     Outputs:
     - new_graph (networkx.Graph): The new graph, with all the original data preserved, but with each node being assigned new latitude and longitude coordinates.
     """

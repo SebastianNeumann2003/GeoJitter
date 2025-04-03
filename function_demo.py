@@ -1,3 +1,6 @@
+import time
+t = time.time()
+
 import pickle
 from typing import Hashable
 
@@ -6,7 +9,10 @@ import networkx as nx
 import shapely as shp
 
 import netgeo as ng
-
+dt = time.time()
+print(f"imports {dt - t}")
+t = time.time()
+print("Time start")
 with open("./data_vault/test_network1.pkl", "rb") as f:
     original_network: nx.Graph = pickle.load(f)
 
@@ -23,6 +29,10 @@ def point_converter(node: Hashable) -> shp.Point:
     return shp.Point(0, 0)  # Since we are using random points in the region, the output of this function is discarded
 
 
+dt = time.time()
+print(f"Load {dt-t}")
+t = dt
+
 new_network = ng.obfuscated_network(
     regions=regions,
     network=original_network,
@@ -30,5 +40,10 @@ new_network = ng.obfuscated_network(
     point_converter=point_converter,
     strategy=ng.rand_point_in_region(max_iter=100)
 )
+dt = time.time()
+print("Thinking complete in", dt-t)
+t = time.time()
 
 ng.display(regions, new_network, title="New network using refactored bindings!")
+dt = time.time()
+print("Displaying complete in", dt-t)
