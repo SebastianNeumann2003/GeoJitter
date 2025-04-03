@@ -1,23 +1,23 @@
 import random
-import math
+from math import pi, cos, sin
 from typing import Callable
 
-import networkx as nx
-import geopandas as gpd
+from networkx import Graph, draw
+from geopandas import GeoDataFrame
+from shapely import Polygon, MultiPolygon, Point
 import matplotlib.pyplot as plt
-import shapely as shp
 import contextily as ctx
 import scipy.stats as stat
 
 
 def obfuscated_network(
-        regions: gpd.GeoDataFrame,
-        network: nx.Graph,
+        regions: GeoDataFrame,
+        network: Graph,
         region_accessor: Callable,
         point_converter: Callable,
         strategy: Callable,
         fail_graceful: bool = True
-) -> nx.Graph:
+) -> Graph:
     """
     Creates a new network based on given information with the points obfuscated.
     Inputs:
@@ -50,7 +50,7 @@ def obfuscated_network(
             nodes[point]["long"] = new_point.x
             nodes[point]["lat"] = new_point.y
 
-    new_graph = nx.Graph()
+    new_graph = Graph()
     for node, data in nodes.items():
         new_graph.add_node(node, **data)
 
@@ -72,7 +72,7 @@ def rand_point_in_region(
     Outputs:
     - point_gen (Callable[shapely.Point, shapely.Polygon | shapely.MultiPolygon -> shapely.Point]): A function which expects a point and a region, which (when called) outputs a random point in the region.
     """
-    def point_gen(point: shp.Point, region: shp.Polygon | shp.MultiPolygon) -> shp.Point:
+    def point_gen(point: Point, region: Polygon | MultiPolygon) -> Point:
         if region.geom_type == "MultiPolygon":
             # TODO: It's possible there are better ways to choose the region than this. Will likely modify the behavior of the distribution
             # The first place this comes to mind would be where different sub-polygons have different areas. This would treat them all equally, giving outsized representation to smaller regions
@@ -87,7 +87,7 @@ def rand_point_in_region(
         for _ in range(max_iter):
             cpx = distribution.rvs(loc=minx, scale=maxx - minx)
             cpy = distribution.rvs(loc=miny, scale=maxy - miny)
-            candidate_point = shp.Point(cpx, cpy)
+            candidate_point = Point(cpx, cpy)
 
             if focused_region.contains(candidate_point):
                 return candidate_point
@@ -99,10 +99,10 @@ def rand_point_in_region(
 
 
 def rand_point_by_radius(
-    starting_point: shp.Point,
+    starting_point: Point,
     radius: float,
     distribution=stat.uniform
-) -> shp.Point:
+) -> Point:
     """
     Based on a starting point, returns a random point within the provided radius of the starting point.
     Inputs:
@@ -113,12 +113,12 @@ def rand_point_by_radius(
     - shapely.Point with the new coordinate, within the specified radius from the starting point
     """
     r = distribution.rvs(loc=0, scale=radius)
-    theta = distribution.rvs(loc=0, scale=2 * math.pi)
+    theta = distribution.rvs(loc=0, scale=2 * pi)
 
-    return shp.Point(starting_point.x + r*math.cos(theta), starting_point.y + r*math.sin(theta))
+    return Point(starting_point.x + r*cos(theta), starting_point.y + r*sin(theta))
 
 
-def display(regions: gpd.GeoDataFrame, network: nx.Graph, title: str = None) -> None:
+def display(regions: GeoDataFrame, network: Graph, title: str = None) -> None:
     """
     Overlays a collection of regions and a network over a world map, then displays the plot.
     Inputs:
@@ -133,7 +133,7 @@ def display(regions: gpd.GeoDataFrame, network: nx.Graph, title: str = None) -> 
     fig, ax = plt.subplots(figsize=(10, 10))
 
     regions.plot(ax=ax, color="lightgray", edgecolor="black", alpha=0.5)
-    nx.draw(network, pos, ax=ax, node_size=50, edge_color="blue", node_color="red", with_labels=True, font_size=8)
+    draw(network, pos, ax=ax, node_size=50, edge_color="blue", node_color="red", with_labels=True, font_size=8)
     ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
 
     plt.title(title)

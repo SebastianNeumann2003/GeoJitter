@@ -8,7 +8,7 @@ import geopandas as gpd
 import networkx as nx
 import shapely as shp
 
-import netgeo as ng
+import geojitter as gj
 dt = time.time()
 print(f"imports {dt - t}")
 t = time.time()
@@ -33,17 +33,17 @@ dt = time.time()
 print(f"Load {dt-t}")
 t = dt
 
-new_network = ng.obfuscated_network(
+new_network = gj.obfuscated_network(
     regions=regions,
     network=original_network,
     region_accessor=region_accessor,
     point_converter=point_converter,
-    strategy=ng.rand_point_in_region(max_iter=100)
+    strategy=gj.rand_point_in_region(max_iter=100)
 )
 dt = time.time()
 print("Thinking complete in", dt-t)
 t = time.time()
 
-ng.display(regions, new_network, title="New network using refactored bindings!")
+gj.display(regions, new_network, title="New network using refactored bindings!")
 dt = time.time()
 print("Displaying complete in", dt-t)
