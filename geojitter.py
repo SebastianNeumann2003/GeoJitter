@@ -13,7 +13,7 @@ import scipy.stats as stat
 def obfuscated_network(
         regions: GeoDataFrame,
         network: Graph,
-        region_accessor: Callable,
+        region_accessor: Callable | None,
         point_converter: Callable,
         strategy: Callable,
         fail_graceful: bool = True
@@ -33,9 +33,14 @@ def obfuscated_network(
     nodes = {}
     for point, data in network.nodes(data=True):
         nodes[point] = data
-
-        region = region_accessor(point)
         old_point = point_converter(point)
+
+        if region_accessor is None:
+            regions_inside = identify_point_region(old_point, regions)
+            best_region_index = list(regions_inside).index(True)
+            region = regions.get(best_region_index)
+        else:
+            region = region_accessor(point)
 
         new_point = strategy(old_point, region)
 
@@ -56,6 +61,10 @@ def obfuscated_network(
 
     new_graph.add_edges_from(network.edges(data=True))
     return new_graph
+
+
+def identify_point_region(point: Point, regions: GeoDataFrame):
+    return regions.contains(point)
 
 
 # Will eventually be put in strategies.py
