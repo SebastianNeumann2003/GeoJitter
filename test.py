@@ -4,15 +4,13 @@ import time
 t = time.time()
 
 import pickle
-from math import pi, cos, sin
-from typing import Hashable, Callable
+from typing import Hashable
 
-from networkx import Graph, draw
+from networkx import Graph
 from geopandas import GeoDataFrame, read_file
-from shapely import Polygon, MultiPolygon, Point, Geometry
+from shapely import Point, Geometry
 import matplotlib.pyplot as plt
 from contextily import add_basemap, providers
-from scipy.stats import uniform
 
 import geojitter as gj
 
@@ -21,12 +19,11 @@ print("Imports", nt - t)
 
 t = time.time()
 
-with open("./data_vault/test_network1.pkl", "rb") as f:
+with open("./experiments/data/networks/us_rail_network", "rb") as f:
     original_network: Graph = pickle.load(f)
 
-regions: GeoDataFrame = read_file("./data_vault/Boston_Neighborhood_Boundaries_Approximated_by_2020_Census_Tracts.shp").get(['neighborho', 'geometry'])
-
-quick_ref = dict(zip(regions["neighborho"], regions["geometry"]))
+regions: GeoDataFrame = read_file("./experiments/data/regions/illinois/state_census_tracts/cb_2018_17_tract_500k.shp")
+print(regions.head(5))
 
 fig, ax = plt.subplots(figsize=(10, 10))
 
@@ -36,9 +33,8 @@ nt = time.time()
 print("Reading:", nt - t)
 
 
-def region_accessor(node: Hashable) -> Geometry:
-    neighborhood_name = original_network.nodes[node]["neighborhood"]
-    return quick_ref[neighborhood_name]
+# def region_accessor(node: Hashable) -> Geometry:
+#     return quick_ref[node]
 
 
 def point_converter(node: Hashable) -> Point:
@@ -51,10 +47,11 @@ def time_thinking():
     new_network = gj.obfuscated_network(
         regions=regions,
         network=original_network,
-        region_accessor=region_accessor,
+        region_accessor=None,
         point_converter=point_converter,
         strategy=gj.rand_point_in_region(max_iter=100)
     )
+    # gj.display(regions, new_network)
 
     nt = time.time()
     return nt - t
