@@ -1,14 +1,13 @@
 import time
 
-
 t = time.time()
 
 import pickle
 from typing import Hashable
 
 from networkx import Graph
-from geopandas import GeoDataFrame, read_file
-from shapely import Point, Geometry
+from geopandas import GeoDataFrame, read_file, GeoSeries
+from shapely import Point, Polygon
 import matplotlib.pyplot as plt
 from contextily import add_basemap, providers
 
@@ -19,11 +18,12 @@ print("Imports", nt - t)
 
 t = time.time()
 
-with open("./experiments/data/networks/us_rail_network", "rb") as f:
+with open("./experiments/data/networks/spatial_graph_brightkite", "rb") as f:
     original_network: Graph = pickle.load(f)
 
-regions: GeoDataFrame = read_file("./experiments/data/regions/illinois/state_census_tracts/cb_2018_17_tract_500k.shp")
-print(regions.head(5))
+regions: GeoSeries = gj.gen_region_grid(original_network, 10, 10)
+
+quick_ref = dict(enumerate(list(regions)))
 
 fig, ax = plt.subplots(figsize=(10, 10))
 
@@ -33,8 +33,12 @@ nt = time.time()
 print("Reading:", nt - t)
 
 
-# def region_accessor(node: Hashable) -> Geometry:
-#     return quick_ref[node]
+def region_accessor(node: Hashable) -> Polygon:
+    if "region" not in original_network.nodes(data=True)[node]:
+        return quick_ref[0]
+    else:
+        region_name = original_network.nodes(data=True)[node]["region"]
+        return quick_ref[region_name]
 
 
 def point_converter(node: Hashable) -> Point:
@@ -47,10 +51,11 @@ def time_thinking():
     new_network = gj.obfuscated_network(
         regions=regions,
         network=original_network,
-        region_accessor=None,
+        region_accessor=region_accessor,
         point_converter=point_converter,
         strategy=gj.rand_point_in_region(max_iter=100)
     )
+    x = len(new_network)
     # gj.display(regions, new_network)
 
     nt = time.time()

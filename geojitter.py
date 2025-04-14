@@ -1,13 +1,15 @@
 import random
 from math import pi, cos, sin
 from typing import Callable
+from itertools import pairwise
 
 from networkx import Graph, draw
-from geopandas import GeoDataFrame
+from geopandas import GeoDataFrame, GeoSeries
 from shapely import Polygon, MultiPolygon, Point
 import matplotlib.pyplot as plt
 import contextily as ctx
 import scipy.stats as stat
+import numpy as np
 
 
 def obfuscated_network(
@@ -35,12 +37,7 @@ def obfuscated_network(
         nodes[point] = data
         old_point = point_converter(point)
 
-        if region_accessor is None:
-            regions_inside = identify_point_region(old_point, regions)
-            best_region_index = list(regions_inside).index(True)
-            region = regions.get(best_region_index)
-        else:
-            region = region_accessor(point)
+        region = region_accessor(point)
 
         new_point = strategy(old_point, region)
 
@@ -63,8 +60,42 @@ def obfuscated_network(
     return new_graph
 
 
-def identify_point_region(point: Point, regions: GeoDataFrame):
-    return regions.contains(point)
+def gen_region_grid(network: Graph, rows: int, cols: int, buffer: float = 0.1, modify_network=True) -> GeoSeries:
+    """
+    Using points from a network, creates a bounding box surrounding all the points and divides the box into grid squares
+    Inputs:
+    - network: The graph containing the points. Each node in the graph must have "lat" and "long" properties for geolocation
+    - rows: The number of rows in the final collection of regions
+    - cols: The number of columns in the final collection of regions
+    - buffer (optional): Any extra space to be added around the points, as a percentage above one. Defaults to 0.1, or 10% buffer. No buffer is represented as 0
+    - modify_network (optional): If true, modifies the original network so each node on the graph knows which region it is in, using the "region" field. Defaults to true
+    Outputs:
+    A GeoDataFrame containing each region's Polygon
+    """
+    nodes = {node: (data["long"], data["lat"]) for node, data in network.nodes(data=True)}
+    min_long = min([x[0] for x in nodes.values()])
+    max_long = max([x[0] for x in nodes.values()])
+    min_lat = min([x[1] for x in nodes.values()])
+    max_lat = max([x[1] for x in nodes.values()])
+
+    lat_buff = buffer*(max_lat - min_lat)
+    long_buff = buffer*(max_long - min_long)
+
+    lat_pairs = pairwise(np.linspace(min_lat - lat_buff, max_lat + lat_buff, rows + 1))
+    long_pairs = pairwise(np.linspace(min_long - long_buff, max_long + long_buff, cols + 1))
+
+    out_regions = []
+    for nlat, xlat in lat_pairs:
+        for nlong, xlong in long_pairs:
+            out_regions.append(Polygon(shell=[(nlong, nlat), (nlong, xlat), (xlong, xlat), (xlong, nlat), (nlong, nlat)]))
+
+            if modify_network:
+                points_in_here = [node for node, data in nodes.items() if nlong <= data[0] < xlong and nlat <= data[1] < xlat]
+                for point in points_in_here:
+                    network.nodes[point]["region"] = len(out_regions) - 1
+                    print(network.nodes(data=True)[point])
+
+    return GeoSeries(data=out_regions)
 
 
 # Will eventually be put in strategies.py
