@@ -6,7 +6,7 @@ import pickle
 from typing import Hashable
 
 from networkx import Graph, draw
-from geopandas import GeoDataFrame, read_file, GeoSeries
+from geopandas import GeoDataFrame, read_file, GeoSeries, list_layers
 from shapely import Point, Polygon
 import matplotlib.pyplot as plt
 from contextily import add_basemap, providers
@@ -24,12 +24,12 @@ with open("./experiments/data/networks/spatial_graph_brightkite", "rb") as f:
     original_network: Graph = pickle.load(f)
 state = read_file("./data_vault/cb_2018_us_state_20m/cb_2018_us_state_20m.shp")
 state.crs = "EPSG:4326"
-state = state.loc[1, 'geometry']
+state = state.loc[32, 'geometry']
 ax.plot(*state.exterior.xy)
 
 new_network = gj.filter_network_by_region(original_network, state)
 
-regions: GeoSeries = gj.gen_region_grid(new_network, 10, 10)
+regions: GeoSeries = gj.gen_region_grid_rc(new_network, 10, 10)
 
 quick_ref = dict(enumerate(list(regions)))
 

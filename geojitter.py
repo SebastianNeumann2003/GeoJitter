@@ -60,7 +60,7 @@ def obfuscated_network(
     return new_graph
 
 
-def gen_region_grid(network: Graph, rows: int, cols: int, buffer: float = 0.1, modify_network=True) -> GeoSeries:
+def gen_region_grid_rc(network: Graph, rows: int, cols: int, buffer: float = 0.1, modify_network=True) -> GeoSeries:
     """
     Using points from a network, creates a bounding box surrounding all the points and divides the box into grid squares
     Inputs:
@@ -80,11 +80,11 @@ def gen_region_grid(network: Graph, rows: int, cols: int, buffer: float = 0.1, m
 
     lat_buff = buffer*(max_lat - min_lat)
     long_buff = buffer*(max_long - min_long)
-    print("Latitudes", min_lat - lat_buff, max_lat + lat_buff)
-    print("Longitudes", min_long - long_buff, max_long + long_buff)
+    # print("Latitudes", min_lat - lat_buff, max_lat + lat_buff)
+    # print("Longitudes", min_long - long_buff, max_long + long_buff)
 
     lat_pairs = list(pairwise(np.linspace(min_lat - lat_buff, max_lat + lat_buff, rows + 1)))
-    long_pairs = list(pairwise(np.linspace(min_long, max_long, cols + 1)))
+    long_pairs = list(pairwise(np.linspace(min_long - long_buff, max_long + long_buff, cols + 1)))
 
     out_regions = []
     for nlong, xlong in long_pairs:
@@ -106,19 +106,78 @@ def gen_region_grid(network: Graph, rows: int, cols: int, buffer: float = 0.1, m
     return GeoSeries(data=out_regions)
 
 
-def filter_network_by_region(network: Graph, region: Polygon) -> Graph:
-    new_network = Graph()
-    for node, data in network.nodes(data=True):
-        if region.contains(Point(data["long"], data["lat"])):
-            new_network.add_node(node)
-            for key, value in data.items():
-                new_network.nodes[node][key] = value
+def gen_region_grid_wh(network: Graph, width: float, height: float, buffer: float = 0.1, modify_network=True) -> GeoSeries:
+    """
+    Using points from a network, creates a bounding box surrounding all the points and divides the box into grid squares
+    Inputs:
+    - network: The graph containing the points. Each node in the graph must have "lat" and "long" properties for geolocation
+    - width: The width of each tile
+    - height: The height of each tile
+    - buffer (optional): Any extra space to be added around the points, as a percentage above one. Defaults to 0.1, or 10% buffer. No buffer is represented as 0
+    - modify_network (optional): If true, modifies the original network so each node on the graph knows which region it is in, using the "region" field. Defaults to true
+    Outputs:
+    A GeoSeries containing each region's Polygon
+    """
+    nodes = {node: (data["long"], data["lat"]) for node, data in network.nodes(data=True)}
+    min_long = min([x[0] for x in nodes.values()])
+    max_long = max([x[0] for x in nodes.values()])
+    min_lat = min([x[1] for x in nodes.values()])
+    max_lat = max([x[1] for x in nodes.values()])
 
-    for u, v, data in network.edges(data=True):
-        if u in new_network.nodes and v in new_network.nodes:
-            new_network.add_edge(u, v)
-            for key, value in data.items():
-                new_network.edges[u, v][key] = value
+    lat_buff = buffer*(max_lat - min_lat)
+    long_buff = buffer*(max_long - min_long)
+    print("Latitudes", min_lat - lat_buff, max_lat + lat_buff)
+    print("Longitudes", min_long - long_buff, max_long + long_buff)
+
+    lat_pairs = list(pairwise(np.arange(min_lat - lat_buff, max_lat + lat_buff, height)))
+    long_pairs = list(pairwise(np.arange(min_long, max_long, width)))
+
+    out_regions = []
+    for nlong, xlong in long_pairs:
+        for nlat, xlat in lat_pairs:
+            out_regions.append(
+                Polygon(shell=[
+                    (nlong, nlat), (nlong, xlat), (xlong, xlat), (xlong, nlat), (nlong, nlat)
+                ])
+            )
+
+            if modify_network:
+                points_in_here = [
+                    node for node, data in nodes.items()
+                    if nlong <= data[0] < xlong and nlat <= data[1] < xlat
+                ]
+                for point in points_in_here:
+                    network.nodes[point]["region"] = len(out_regions) - 1
+
+    return GeoSeries(data=out_regions)
+
+
+def filter_network_by_region(network: Graph, raw_region: Polygon | MultiPolygon) -> Graph:
+    if raw_region.geom_type == "MultiPolygon":
+        regions = [polygon for polygon in raw_region.geoms]
+    else:
+        regions = [raw_region]
+
+    new_network = Graph()
+    for region in regions:
+        for node, data in network.nodes(data=True):
+            if region.contains(Point(data["long"], data["lat"])):
+                new_network.add_node(node)
+                for key, value in data.items():
+                    new_network.nodes[node][key] = value
+
+        for u, v, data in network.edges(data=True):
+            if u in new_network.nodes and v in new_network.nodes:
+                new_network.add_edge(u, v)
+                for key, value in data.items():
+                    new_network.edges[u, v][key] = value
+
+    orphans = list()
+    for node in new_network.nodes:
+        if len(list(new_network.neighbors(node))) == 0:
+            orphans.append(node)
+
+    new_network.remove_nodes_from(orphans)
 
     return new_network
 
@@ -164,7 +223,6 @@ def rand_point_in_region(
 
 
 def rand_point_by_radius(
-    starting_point: Point,
     radius: float,
     distribution=stat.uniform
 ) -> Point:
@@ -177,10 +235,13 @@ def rand_point_by_radius(
     Outputs:
     - shapely.Point with the new coordinate, within the specified radius from the starting point
     """
-    r = distribution.rvs(loc=0, scale=radius)
-    theta = distribution.rvs(loc=0, scale=2 * pi)
+    def point_gen(point, region):
+        r = radius * sqrt(distribution.rvs(loc=0, scale=1))
+        theta = distribution.rvs(loc=0, scale=2 * pi)
 
-    return Point(starting_point.x + r*cos(theta), starting_point.y + r*sin(theta))
+        return Point(point[0] + r*cos(theta), point[1] + r*sin(theta))
+
+    return point_gen
 
 
 def display(regions: GeoDataFrame, network: Graph, title: str = None, ax=None) -> None:
@@ -199,7 +260,7 @@ def display(regions: GeoDataFrame, network: Graph, title: str = None, ax=None) -
         fig, ax = plt.subplots(figsize=(10, 10))
 
     regions.plot(ax=ax, color="lightgray", edgecolor="black", alpha=0.5)
-    draw(network, pos, ax=ax, node_size=50, edge_color="blue", node_color="red", with_labels=False)
+    draw(network, pos, ax=ax, node_size=500 / len(network.nodes), edge_color="blue", node_color="red", with_labels=False)
     ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
 
     plt.title(title)
@@ -221,16 +282,16 @@ def wasserstein(old_network: Graph, new_network: Graph) -> float:
 
         new_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
 
-    fig, ax = plt.subplots()
+    # fig, ax = plt.subplots()
     sorted_old = np.sort(old_edge_distances)
     sorted_new = np.sort(new_edge_distances)
 
     cdf1 = np.arange(1, len(sorted_old) + 1) / len(sorted_old)
     cdf2 = np.arange(1, len(sorted_new) + 1) / len(sorted_new)
 
-    ax.step(sorted_old, cdf1)
-    ax.step(sorted_new, cdf2)
-    plt.show()
+    # ax.step(sorted_old, cdf1)
+    # ax.step(sorted_new, cdf2)
+    # plt.show()
     # max_edge = max(max(old_edge_distances), max(new_edge_distances))
     # min_edge = min(min(old_edge_distances), min(new_edge_distances))
     # print("Max:", max_edge, "MIn:", min_edge, "Delta:", max_edge - min_edge)
