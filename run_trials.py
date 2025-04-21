@@ -1,32 +1,36 @@
+from pathlib import Path
 import pickle
 from typing import Hashable
+from datetime import datetime
 
 import networkx as nx
 import geopandas as gp
 import shapely as shp
 import matplotlib.pyplot as plt
-import contextily as ctx
 
 import geojitter as gj
-
-fig, ax = plt.subplots()
 
 with open("./experiments/data/networks/spatial_graph_brightkite", "rb") as f:
     big_network: nx.Graph = pickle.load(f)
 
-all_states = gp.read_file("./data_vault/cb_2018_us_state_20m/cb_2018_us_state_20m.shp").get(['STATEFP', 'NAME', 'geometry'])
+all_states = gp.read_file("./data_vault/cb_2023_us_state_20m/cb_2023_us_state_20m.shp").get(['STATEFP', 'NAME', 'geometry'])
 all_states.crs = "EPSG:4326"
 
-congress = gp.read_file("./data_vault/cb_2023_us_sldl_500k/cb_2023_us_sldl_500k.shp")
+congress = gp.read_file("./data_vault/cb_2023_us_cd118_500k/cb_2023_us_cd118_500k.shp")
 congress.crs = "EPSG:4326"
-geo_missouri = all_states.loc[all_states['NAME'] == 'Missouri', 'geometry']
+
+output_path = "./trial_outputs/" + datetime.now().strftime("%d%b%Y - %H%M%S")
+Path(output_path).mkdir(parents=True, exist_ok=True)
+
+
+def point_converter(node: Hashable, data: dict) -> tuple[float, float]:
+    return (data['long'], data['lat'])
+
 
 trial_states = ['Texas', 'Virginia', 'California', 'New York', 'Missouri']
 
-
 for trial_state in trial_states:
-    def point_converter(node: Hashable, data: dict) -> tuple[float, float]:
-        return (data['long'], data['lat'])
+    fig, ax = plt.subplots(2, 3)
 
     def region_accessor_tile(node: Hashable) -> shp.Polygon:
         if "region" not in focused_network_tile.nodes(data=True)[node]:
@@ -37,10 +41,10 @@ for trial_state in trial_states:
 
     def region_accessor_congress(node: Hashable) -> shp.Polygon:
         if "region" not in focused_network_congress.nodes(data=True)[node]:
-            return congress_regions.iloc[0].iloc[0]
+            return congress_regions.iloc[0].loc['geometry']
         else:
             region_name = focused_network_congress.nodes(data=True)[node]["region"]
-            return congress_regions.iloc[region_name].iloc[0]
+            return congress_regions.iloc[region_name].loc['geometry']
 
     state_subdf = all_states.loc[all_states['NAME'] == trial_state, ['STATEFP', 'geometry']]
     fips = state_subdf.iloc[0].iloc[0]
@@ -78,5 +82,29 @@ for trial_state in trial_states:
         strategy=gj.rand_point_in_region(),
         fail_graceful=False
     )
+
+    ax[0, 0].set_title("By radius")
+    ax[0, 1].set_title("By tile")
+    ax[0, 2].set_title("By district")
+
+    wasserstein_rad = gj.wasserstein(focused_network_tile, jittered_by_radius, ax[0, 0])
+    ks_rad = gj.kolmogorov_smirnov(focused_network_tile, jittered_by_radius)
+
+    wasserstein_tile = gj.wasserstein(focused_network_tile, jittered_by_tile, ax[0, 1])
+    ks_tile = gj.kolmogorov_smirnov(focused_network_tile, jittered_by_tile)
+
+    wasserstein_region = gj.wasserstein(focused_network_congress, jittered_by_congress, ax[0, 2])
+    ks_region = gj.kolmogorov_smirnov(focused_network_congress, jittered_by_congress)
+
+    ax[0, 0].text(0.2, 0.1, f"Wass. Distance = {wasserstein_rad:.2f}\nKS GoF = {ks_rad}", size='xx-small')
+    ax[0, 1].text(0.2, 0.1, f"Wass. Distance = {wasserstein_tile:.2f}\nKS GoF = {ks_tile}", size='xx-small')
+    ax[0, 2].text(0.2, 0.1, f"Wass. Distance = {wasserstein_region:.2f}\nKS GoF = {ks_region}", size='xx-small')
+
+    ax[1, 0].boxplot(gj.normal_signed_distance(focused_network_tile, jittered_by_radius))
+    ax[1, 1].boxplot(gj.normal_signed_distance(focused_network_tile, jittered_by_tile))
+    ax[1, 2].boxplot(gj.normal_signed_distance(focused_network_congress, jittered_by_congress))
+
+    plt.savefig(f"{output_path}/{trial_state}.png")
+    plt.close()
 
     print(trial_state, "is done!")

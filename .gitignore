@@ -172,3 +172,4 @@ cython_debug/
 
 # Specific GeoJitter
 data_vault/
+trial_outputs/
