@@ -16,8 +16,8 @@ with open("./experiments/data/networks/spatial_graph_brightkite", "rb") as f:
 all_states = gp.read_file("./data_vault/cb_2023_us_state_20m/cb_2023_us_state_20m.shp").get(['STATEFP', 'NAME', 'geometry'])
 all_states.crs = "EPSG:4326"
 
-congress = gp.read_file("./data_vault/cb_2023_us_cd118_500k/cb_2023_us_cd118_500k.shp")
-congress.crs = "EPSG:4326"
+counties = gp.read_file("./data_vault/cb_2023_us_county_20m/cb_2023_us_county_20m.shp")
+counties.crs = "EPSG:4326"
 
 output_path = "./trial_outputs/" + datetime.now().strftime("%d%b%Y - %H%M%S")
 Path(output_path).mkdir(parents=True, exist_ok=True)
@@ -39,22 +39,27 @@ for trial_state in trial_states:
             region_name = focused_network_tile.nodes(data=True)[node]["region"]
             return tiled_regions[region_name]
 
-    def region_accessor_congress(node: Hashable) -> shp.Polygon:
-        if "region" not in focused_network_congress.nodes(data=True)[node]:
-            return congress_regions.iloc[0].loc['geometry']
-        else:
-            region_name = focused_network_congress.nodes(data=True)[node]["region"]
-            return congress_regions.iloc[region_name].loc['geometry']
+    def region_accessor_counties(node: Hashable) -> shp.Polygon:
+        data = focused_network_counties.nodes(data=True)[node]
+
+        if "region" not in data:
+            for index, region_entry in counties_regions.iterrows():
+                region = region_entry['geometry']
+                if region.contains(shp.Point(data["long"], data["lat"])):
+                    return region
+
+        region_name = focused_network_counties.nodes(data=True)[node]["region"]
+        return counties_regions.iloc[region_name].loc['geometry']
 
     state_subdf = all_states.loc[all_states['NAME'] == trial_state, ['STATEFP', 'geometry']]
     fips = state_subdf.iloc[0].iloc[0]
     state_geom = state_subdf.iloc[0].iloc[1]
 
     focused_network_tile: nx.Graph = gj.filter_network_by_region(big_network, state_geom)
-    focused_network_congress: nx.Graph = focused_network_tile.copy()
+    focused_network_counties: nx.Graph = focused_network_tile.copy()
 
     tiled_regions: gp.GeoSeries = gj.gen_region_grid_rc(focused_network_tile, 10, 10)
-    congress_regions: gp.GeoDataFrame = congress.loc[congress['STATEFP'] == fips]
+    counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
 
     jittered_by_radius = gj.obfuscated_network(
         regions=None,
@@ -74,10 +79,10 @@ for trial_state in trial_states:
         fail_graceful=False
     )
 
-    jittered_by_congress = gj.obfuscated_network(
-        regions=congress_regions,
-        network=focused_network_congress,
-        region_accessor=region_accessor_congress,
+    jittered_by_counties = gj.obfuscated_network(
+        regions=counties_regions,
+        network=focused_network_counties,
+        region_accessor=region_accessor_counties,
         point_converter=point_converter,
         strategy=gj.rand_point_in_region(),
         fail_graceful=False
@@ -93,8 +98,8 @@ for trial_state in trial_states:
     wasserstein_tile = gj.wasserstein(focused_network_tile, jittered_by_tile, ax[0, 1])
     ks_tile = gj.kolmogorov_smirnov(focused_network_tile, jittered_by_tile)
 
-    wasserstein_region = gj.wasserstein(focused_network_congress, jittered_by_congress, ax[0, 2])
-    ks_region = gj.kolmogorov_smirnov(focused_network_congress, jittered_by_congress)
+    wasserstein_region = gj.wasserstein(focused_network_counties, jittered_by_counties, ax[0, 2])
+    ks_region = gj.kolmogorov_smirnov(focused_network_counties, jittered_by_counties)
 
     ax[0, 0].text(0.2, 0.1, f"Wass. Distance = {wasserstein_rad:.2f}\nKS GoF = {ks_rad}", size='xx-small')
     ax[0, 1].text(0.2, 0.1, f"Wass. Distance = {wasserstein_tile:.2f}\nKS GoF = {ks_tile}", size='xx-small')
@@ -102,8 +107,9 @@ for trial_state in trial_states:
 
     ax[1, 0].boxplot(gj.normal_signed_distance(focused_network_tile, jittered_by_radius))
     ax[1, 1].boxplot(gj.normal_signed_distance(focused_network_tile, jittered_by_tile))
-    ax[1, 2].boxplot(gj.normal_signed_distance(focused_network_congress, jittered_by_congress))
+    ax[1, 2].boxplot(gj.normal_signed_distance(focused_network_counties, jittered_by_counties))
 
+    plt.title(f"Results: {trial_state}")
     plt.savefig(f"{output_path}/{trial_state}.png")
     plt.close()
 
