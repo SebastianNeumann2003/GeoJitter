@@ -27,9 +27,11 @@ def point_converter(node: Hashable, data: dict) -> tuple[float, float]:
     return (data['long'], data['lat'])
 
 
-trial_states = ['Texas', 'Virginia', 'California', 'New York', 'Missouri']
+trial_states = ['California', 'Texas', 'Florida', 'Missouri']
+iterations_per_state = 5
 
 for trial_state in trial_states:
+    plt.title(f"Results: {trial_state}")
     fig, ax = plt.subplots(2, 3)
 
     def region_accessor_tile(node: Hashable) -> shp.Polygon:
@@ -55,61 +57,65 @@ for trial_state in trial_states:
     fips = state_subdf.iloc[0].iloc[0]
     state_geom = state_subdf.iloc[0].iloc[1]
 
-    focused_network_tile: nx.Graph = gj.filter_network_by_region(big_network, state_geom)
-    focused_network_counties: nx.Graph = focused_network_tile.copy()
+    by_radii = []
+    by_tile = []
+    by_region = []
 
-    tiled_regions: gp.GeoSeries = gj.gen_region_grid_rc(focused_network_tile, 10, 10)
-    counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
+    for trial in range(iterations_per_state):
+        focused_network_tile: nx.Graph = gj.filter_network_by_region(big_network, state_geom)
+        focused_network_counties: nx.Graph = focused_network_tile.copy()
 
-    jittered_by_radius = gj.obfuscated_network(
-        regions=None,
-        network=focused_network_tile,
-        region_accessor=lambda x: x,
-        point_converter=point_converter,
-        strategy=gj.rand_point_by_radius(0.5),
-        fail_graceful=False
-    )
+        tiled_regions: gp.GeoSeries = gj.gen_region_grid_rc(focused_network_tile, 10, 10)
+        counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
 
-    jittered_by_tile = gj.obfuscated_network(
-        regions=tiled_regions,
-        network=focused_network_tile,
-        region_accessor=region_accessor_tile,
-        point_converter=point_converter,
-        strategy=gj.rand_point_in_region(),
-        fail_graceful=False
-    )
+        by_radii.append(gj.obfuscated_network(
+            regions=None,
+            network=focused_network_tile,
+            region_accessor=lambda x: x,
+            point_converter=point_converter,
+            strategy=gj.rand_point_by_radius(0.5),
+            fail_graceful=False
+        ))
 
-    jittered_by_counties = gj.obfuscated_network(
-        regions=counties_regions,
-        network=focused_network_counties,
-        region_accessor=region_accessor_counties,
-        point_converter=point_converter,
-        strategy=gj.rand_point_in_region(),
-        fail_graceful=False
-    )
+        by_tile.append(gj.obfuscated_network(
+            regions=tiled_regions,
+            network=focused_network_tile,
+            region_accessor=region_accessor_tile,
+            point_converter=point_converter,
+            strategy=gj.rand_point_in_region(),
+            fail_graceful=False
+        ))
+
+        by_region.append(gj.obfuscated_network(
+            regions=counties_regions,
+            network=focused_network_counties,
+            region_accessor=region_accessor_counties,
+            point_converter=point_converter,
+            strategy=gj.rand_point_in_region(),
+            fail_graceful=False
+        ))
 
     ax[0, 0].set_title("By radius")
     ax[0, 1].set_title("By tile")
     ax[0, 2].set_title("By district")
 
-    wasserstein_rad = gj.wasserstein(focused_network_tile, jittered_by_radius, ax[0, 0])
-    ks_rad = gj.kolmogorov_smirnov(focused_network_tile, jittered_by_radius)
+    wasserstein_rad = gj.wasserstein(focused_network_tile, by_radii, ax[0, 0])
+    ks_rad = gj.kolmogorov_smirnov(focused_network_tile, by_radii)
 
-    wasserstein_tile = gj.wasserstein(focused_network_tile, jittered_by_tile, ax[0, 1])
-    ks_tile = gj.kolmogorov_smirnov(focused_network_tile, jittered_by_tile)
+    wasserstein_tile = gj.wasserstein(focused_network_tile, by_tile, ax[0, 1])
+    ks_tile = gj.kolmogorov_smirnov(focused_network_tile, by_tile)
 
-    wasserstein_region = gj.wasserstein(focused_network_counties, jittered_by_counties, ax[0, 2])
-    ks_region = gj.kolmogorov_smirnov(focused_network_counties, jittered_by_counties)
+    wasserstein_region = gj.wasserstein(focused_network_counties, by_region, ax[0, 2])
+    ks_region = gj.kolmogorov_smirnov(focused_network_counties, by_region)
 
     ax[0, 0].text(0.2, 0.1, f"Wass. Distance = {wasserstein_rad:.2f}\nKS GoF = {ks_rad}", size='xx-small')
     ax[0, 1].text(0.2, 0.1, f"Wass. Distance = {wasserstein_tile:.2f}\nKS GoF = {ks_tile}", size='xx-small')
     ax[0, 2].text(0.2, 0.1, f"Wass. Distance = {wasserstein_region:.2f}\nKS GoF = {ks_region}", size='xx-small')
 
-    ax[1, 0].boxplot(gj.normal_signed_distance(focused_network_tile, jittered_by_radius))
-    ax[1, 1].boxplot(gj.normal_signed_distance(focused_network_tile, jittered_by_tile))
-    ax[1, 2].boxplot(gj.normal_signed_distance(focused_network_counties, jittered_by_counties))
+    ax[1, 0].boxplot(gj.normal_signed_distance(focused_network_tile, by_radii))
+    ax[1, 1].boxplot(gj.normal_signed_distance(focused_network_tile, by_tile))
+    ax[1, 2].boxplot(gj.normal_signed_distance(focused_network_counties, by_region))
 
-    plt.title(f"Results: {trial_state}")
     plt.savefig(f"{output_path}/{trial_state}.png")
     plt.close()
 
