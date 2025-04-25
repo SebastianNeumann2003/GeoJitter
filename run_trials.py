@@ -27,11 +27,10 @@ def point_converter(node: Hashable, data: dict) -> tuple[float, float]:
     return (data['long'], data['lat'])
 
 
-trial_states = ['California', 'Texas', 'Florida', 'Missouri']
-iterations_per_state = 5
+trial_states = ['California', 'Texas', 'Florida', 'Missouri', 'Massachusetts', 'Maryland']
+iterations_per_state = 25
 
 for trial_state in trial_states:
-    plt.title(f"Results: {trial_state}")
     fig, ax = plt.subplots(2, 3)
 
     def region_accessor_tile(node: Hashable) -> shp.Polygon:
@@ -62,6 +61,7 @@ for trial_state in trial_states:
     by_region = []
 
     for trial in range(iterations_per_state):
+        start = datetime.now()
         focused_network_tile: nx.Graph = gj.filter_network_by_region(big_network, state_geom)
         focused_network_counties: nx.Graph = focused_network_tile.copy()
 
@@ -94,10 +94,12 @@ for trial_state in trial_states:
             strategy=gj.rand_point_in_region(),
             fail_graceful=False
         ))
+        end = datetime.now()
+        print("Single trial time:", str(end - start))
 
     ax[0, 0].set_title("By radius")
     ax[0, 1].set_title("By tile")
-    ax[0, 2].set_title("By district")
+    ax[0, 2].set_title("By county")
 
     wasserstein_rad = gj.wasserstein(focused_network_tile, by_radii, ax[0, 0])
     ks_rad = gj.kolmogorov_smirnov(focused_network_tile, by_radii)
@@ -116,6 +118,7 @@ for trial_state in trial_states:
     ax[1, 1].boxplot(gj.normal_signed_distance(focused_network_tile, by_tile))
     ax[1, 2].boxplot(gj.normal_signed_distance(focused_network_counties, by_region))
 
+    plt.suptitle(f"Results: {trial_state}")
     plt.savefig(f"{output_path}/{trial_state}.png")
     plt.close()
 
