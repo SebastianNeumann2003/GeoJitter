@@ -320,13 +320,15 @@ def display(regions: GeoDataFrame, network: Graph, title: str = None, ax=None) -
     Outpus: None
     Side Effects: A pop-up window will open with the completed plot displayed. Code execution will continue while the pop-up window is open, but the program will not exit until all pop-up windows are closed.
     """
-    pos={node: (data['long'], data['lat']) for node, data in network.nodes(data=True)}
-
     if ax is None:
         fig, ax=plt.subplots(figsize=(10, 10))
 
     regions.plot(ax=ax, color="lightgray", edgecolor="black", alpha=0.5)
-    draw(network, pos, ax=ax, node_size=500 / len(network.nodes), edge_color="blue", node_color="red", with_labels=False)
+
+    if network is not None:
+        pos={node: (data['long'], data['lat']) for node, data in network.nodes(data=True)}
+
+        draw(network, pos, ax=ax, node_size=500 / len(network.nodes), edge_color="blue", node_color="red", with_labels=False)
     ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
 
     plt.title(title)
