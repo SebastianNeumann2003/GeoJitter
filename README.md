@@ -18,7 +18,9 @@ The features of this library are built upon the functionality provided by these 
 - [Triangle][triangle]
 # Documentation
 ## Table of Contents
-<!-- TODO -->
+[Data Sources](#data-sources)
+[Example](#example)
+Full readthedocs page coming soon. Function-by-function documentation can be found in `geojitter.py` under each function definition.
 
 ## Data Sources
 One input is strictly necessary for all functionality: a network. This is expected to be a `networkx` `Graph` or one of its subclasses (`MultiGraph`, `DiGraph`, etc.). Also generally recommended is a collection of regions, expected to be in the form of a `geopandas` `GeoDataFrame`.
@@ -34,6 +36,7 @@ Then, two new networks are generated from the data and displayed. This network g
 <p align="center">
     <img src="https://raw.githubusercontent.com/SeabassTheFish03/GeoJitter/refs/heads/main/boston_network.png" alt="Example network post-jitter">
 </p>
+
 # Contributions and Licensing
 This project is licensed under the GNU General Public License Version 3.0 (full text can be found in the LICENSE file). We also adhere to the definition of "Open Source" per the Open Source Initiative: https://opensource.org/osd. However, as the project is still pre-release, we will not be accepting contributions at this time.
 
