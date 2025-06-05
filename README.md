@@ -18,8 +18,9 @@ The features of this library are built upon the functionality provided by these 
 - [Triangle][triangle]
 # Documentation
 ## Table of Contents
-[Data Sources](#data-sources)
-[Example](#example)
+- [Data Sources](#data-sources)
+- [Example](#example)
+
 Full readthedocs page coming soon. Function-by-function documentation can be found in `geojitter.py` under each function definition.
 
 ## Data Sources
