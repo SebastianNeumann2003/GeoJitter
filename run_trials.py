@@ -23,10 +23,12 @@ with open("./experiments/data/networks/spatial_graph_brightkite", "rb") as f:
 with open("./experiments/data/networks/spatial_graph_gowalla", "rb") as f:
     gowalla: nx.Graph = pickle.load(f)
 
-all_states = gp.read_file("./data_vault/cb_2023_us_state_20m/cb_2023_us_state_20m.shp").get(['STATEFP', 'NAME', 'geometry'])
+all_states = gp.read_file(
+    "./data_vault/cb_2023_us_state_20m/cb_2023_us_state_20m.shp").get(['STATEFP', 'NAME', 'geometry'])
 all_states.crs = "EPSG:4326"
 
-counties = gp.read_file("./data_vault/cb_2023_us_county_20m/cb_2023_us_county_20m.shp")
+counties = gp.read_file(
+    "./data_vault/cb_2023_us_county_20m/cb_2023_us_county_20m.shp")
 counties.crs = "EPSG:4326"
 
 output_path = "./trial_outputs/" + datetime.now().strftime("%d%b%Y - %H%M%S")
@@ -83,7 +85,8 @@ def test_states(trial_states: list[str]):
                 if "region" not in focused_network_tile.nodes(data=True)[node]:
                     return tiled_regions[0]
                 else:
-                    region_name = focused_network_tile.nodes(data=True)[node]["region"]
+                    region_name = focused_network_tile.nodes(data=True)[
+                        node]["region"]
                     return tiled_regions[region_name]
 
             def region_accessor_counties(node: Hashable) -> shp.Polygon:
@@ -95,10 +98,12 @@ def test_states(trial_states: list[str]):
                         if region.contains(shp.Point(data["long"], data["lat"])):
                             return region
 
-                region_name = focused_network_counties.nodes(data=True)[node]["region"]
+                region_name = focused_network_counties.nodes(data=True)[
+                    node]["region"]
                 return counties_regions.iloc[region_name].loc['geometry']
 
-            state_subdf = all_states.loc[all_states['NAME'] == trial_state, ['STATEFP', 'geometry']]
+            state_subdf = all_states.loc[all_states['NAME'] == trial_state, [
+                'STATEFP', 'geometry']]
             fips = state_subdf.iloc[0].iloc[0]
             state_geom = state_subdf.iloc[0].iloc[1]
 
@@ -107,19 +112,23 @@ def test_states(trial_states: list[str]):
             by_region = []
 
             counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
-            avg_area = np.mean([county.area for county in counties_regions['geometry']])
+            avg_area = np.mean(
+                [county.area for county in counties_regions['geometry']])
             trial_radius = sqrt(avg_area / (2*pi))
 
             for trial in range(iterations_per_state):
                 trial_start = datetime.now()
 
-                focused_network_tile: nx.Graph = gj.filter_network_by_region(dataset, state_geom)
+                focused_network_tile: nx.Graph = gj.filter_network_by_region(
+                    dataset, state_geom)
                 focused_network_counties: nx.Graph = focused_network_tile.copy()
 
-                tiled_regions: gp.GeoSeries = gj.gen_region_grid_rc(focused_network_tile, 10, 10)
+                tiled_regions: gp.GeoSeries = gj.gen_region_grid_rc(
+                    focused_network_tile, 10, 10)
 
                 current_time = datetime.now()
-                overhead = (current_time - trial_start) / timedelta(microseconds=1)
+                overhead = (current_time - trial_start) / \
+                    timedelta(microseconds=1)
 
                 by_radii.append(gj.obfuscated_network(
                     regions=None,
@@ -129,7 +138,8 @@ def test_states(trial_states: list[str]):
                     strategy=gj.rand_point_by_radius(trial_radius),
                     fail_graceful=False
                 ))
-                radii_time = (datetime.now() - current_time) / timedelta(microseconds=1)
+                radii_time = (datetime.now() - current_time) / \
+                    timedelta(microseconds=1)
                 current_time = datetime.now()
 
                 by_tile.append(gj.obfuscated_network(
@@ -140,7 +150,8 @@ def test_states(trial_states: list[str]):
                     strategy=gj.rand_point_in_region(),
                     fail_graceful=False
                 ))
-                tile_time = (datetime.now() - current_time) / timedelta(microseconds=1)
+                tile_time = (datetime.now() - current_time) / \
+                    timedelta(microseconds=1)
                 current_time = datetime.now()
 
                 by_region.append(gj.obfuscated_network(
@@ -151,7 +162,8 @@ def test_states(trial_states: list[str]):
                     strategy=gj.rand_point_in_region(),
                     fail_graceful=False
                 ))
-                region_time = (datetime.now() - current_time) / timedelta(microseconds=1)
+                region_time = (datetime.now() - current_time) / \
+                    timedelta(microseconds=1)
 
                 trial_analytics.append(asdict(TrialAnalytics(
                     dataset=i,
@@ -172,22 +184,30 @@ def test_states(trial_states: list[str]):
             ax2.set_title("By tile")
             ax3.set_title("By county")
 
-            wasserstein_rad = gj.wasserstein(focused_network_tile, by_radii, ax1)
+            wasserstein_rad = gj.wasserstein(
+                focused_network_tile, by_radii, ax1)
             ks_rad = gj.kolmogorov_smirnov(focused_network_tile, by_radii)
 
-            wasserstein_tile = gj.wasserstein(focused_network_tile, by_tile, ax2)
+            wasserstein_tile = gj.wasserstein(
+                focused_network_tile, by_tile, ax2)
             ks_tile = gj.kolmogorov_smirnov(focused_network_tile, by_tile)
 
-            wasserstein_region = gj.wasserstein(focused_network_counties, by_region, ax3)
-            ks_region = gj.kolmogorov_smirnov(focused_network_counties, by_region)
+            wasserstein_region = gj.wasserstein(
+                focused_network_counties, by_region, ax3)
+            ks_region = gj.kolmogorov_smirnov(
+                focused_network_counties, by_region)
 
-            ax1.text(0.2, 0.1, f"Wass. Distance = {wasserstein_rad:.4f}\nKS GoF = {ks_rad:.4f}", size='xx-small')
-            ax2.text(0.2, 0.1, f"Wass. Distance = {wasserstein_tile:.4f}\nKS GoF = {ks_tile:.4f}", size='xx-small')
-            ax3.text(0.2, 0.1, f"Wass. Distance = {wasserstein_region:.4f}\nKS GoF = {ks_region:.4f}", size='xx-small')
+            ax1.text(0.2, 0.1, f"Wass. Distance = {
+                     wasserstein_rad:.4f}\nKS GoF = {ks_rad:.4f}", size='xx-small')
+            ax2.text(0.2, 0.1, f"Wass. Distance = {wasserstein_tile:.4f}\nKS GoF = {
+                     ks_tile:.4f}", size='xx-small')
+            ax3.text(0.2, 0.1, f"Wass. Distance = {wasserstein_region:.4f}\nKS GoF = {
+                     ks_region:.4f}", size='xx-small')
 
             box1 = gj.normal_signed_distance(focused_network_tile, by_radii)
             box2 = gj.normal_signed_distance(focused_network_tile, by_tile)
-            box3 = gj.normal_signed_distance(focused_network_counties, by_region)
+            box3 = gj.normal_signed_distance(
+                focused_network_counties, by_region)
 
             state_analytics.append(asdict(StateAnalytics(
                 dataset=i,
@@ -198,15 +218,19 @@ def test_states(trial_states: list[str]):
                 ks_rad=ks_rad,
                 ks_tile=ks_tile,
                 ks_region=ks_region,
-                quartiles_rad=np.percentile(box1, [0, 25, 50, 75, 100], method='midpoint'),
-                quartiles_tile=np.percentile(box2, [0, 25, 50, 75, 100], method='midpoint'),
-                quartiles_region=np.percentile(box3, [0, 25, 50, 75, 100], method='midpoint')
+                quartiles_rad=np.percentile(
+                    box1, [0, 25, 50, 75, 100], method='midpoint'),
+                quartiles_tile=np.percentile(
+                    box2, [0, 25, 50, 75, 100], method='midpoint'),
+                quartiles_region=np.percentile(
+                    box3, [0, 25, 50, 75, 100], method='midpoint')
             )))
 
             ax4.boxplot([box1, box2, box3])
             ax4.set_title("Percentage change to edge length")
             ax4.set_xticklabels(["Radius", "Tile", "County"])
-            ax4.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x*100:.0f}%'))
+            ax4.yaxis.set_major_formatter(
+                FuncFormatter(lambda x, _: f'{x*100:.0f}%'))
 
             if i == 1:  # Brightkite
                 fig.suptitle(f"Brightkite Results: {trial_state}")
@@ -236,7 +260,7 @@ test_states(all_trial_states)
 print("All complete!")
 
 
-analytics_df = pd.DataFrame(trial_analytics)
-analytics_df.to_pickle(f"{output_path}/analytics.pkl")
-states_analytics_df = pd.DataFrame(state_analytics)
-states_analytics_df.to_pickle(f"{output_path}/state_analytics.pkl")
+trial_analytics_df = pd.DataFrame(trial_analytics)
+state_analytics_df = pd.DataFrame(state_analytics)
+trial_analytics_df.to_pickle(f"{output_path}/trial_analytics.pkl")
+state_analytics_df.to_pickle(f"{output_path}/state_analytics.pkl")
