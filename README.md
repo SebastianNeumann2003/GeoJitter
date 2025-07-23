@@ -4,7 +4,7 @@ The goal of this library is to provide a lighweight tool which accepts geolocate
 # Installation
 On release, this library will be available using a install via `pip`. At this time, we have a test release available using TestPyPi. It can be installed with the following command:
 ```
-pip install -i https://test.pypi.org/simple/ geojitter
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple geojitter
 ```
 ## Dependencies
 The features of this library are built upon the functionality provided by these dependencies:
