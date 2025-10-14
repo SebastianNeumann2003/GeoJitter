@@ -2,13 +2,16 @@ import random
 from math import pi, cos, sin, sqrt
 from typing import Callable
 from itertools import pairwise
+import os
 
 from networkx import Graph, draw
 from geopandas import GeoDataFrame, GeoSeries
 from shapely import Polygon, MultiPolygon, Point
 import matplotlib.pyplot as plt
+from matplotlib import colormaps
 import contextily as ctx
 import scipy.stats as stat
+from scipy.ndimage import gaussian_filter
 import numpy as np
 import triangle as tri
 
@@ -73,7 +76,8 @@ def gen_region_grid_rc(network: Graph, rows: int, cols: int, buffer: float = 0.1
     Outputs:
     A GeoSeries containing each region's Polygon
     """
-    nodes = {node: (data["long"], data["lat"]) for node, data in network.nodes(data=True)}
+    nodes = {node: (data["long"], data["lat"])
+             for node, data in network.nodes(data=True)}
     min_long = min([x[0] for x in nodes.values()])
     max_long = max([x[0] for x in nodes.values()])
     min_lat = min([x[1] for x in nodes.values()])
@@ -84,15 +88,18 @@ def gen_region_grid_rc(network: Graph, rows: int, cols: int, buffer: float = 0.1
     # print("Latitudes", min_lat - lat_buff, max_lat + lat_buff)
     # print("Longitudes", min_long - long_buff, max_long + long_buff)
 
-    lat_pairs = list(pairwise(np.linspace(min_lat - lat_buff, max_lat + lat_buff, rows + 1)))
-    long_pairs = list(pairwise(np.linspace(min_long - long_buff, max_long + long_buff, cols + 1)))
+    lat_pairs = list(pairwise(np.linspace(
+        min_lat - lat_buff, max_lat + lat_buff, rows + 1)))
+    long_pairs = list(pairwise(np.linspace(
+        min_long - long_buff, max_long + long_buff, cols + 1)))
 
     out_regions = []
     for nlong, xlong in long_pairs:
         for nlat, xlat in lat_pairs:
             out_regions.append(
                 Polygon(shell=[
-                    (nlong, nlat), (nlong, xlat), (xlong, xlat), (xlong, nlat), (nlong, nlat)
+                    (nlong, nlat), (nlong, xlat), (xlong,
+                                                   xlat), (xlong, nlat), (nlong, nlat)
                 ])
             )
 
@@ -119,7 +126,8 @@ def gen_region_grid_wh(network: Graph, width: float, height: float, buffer: floa
     Outputs:
     A GeoSeries containing each region's Polygon
     """
-    nodes = {node: (data["long"], data["lat"]) for node, data in network.nodes(data=True)}
+    nodes = {node: (data["long"], data["lat"])
+             for node, data in network.nodes(data=True)}
     min_long = min([x[0] for x in nodes.values()])
     max_long = max([x[0] for x in nodes.values()])
     min_lat = min([x[1] for x in nodes.values()])
@@ -130,7 +138,8 @@ def gen_region_grid_wh(network: Graph, width: float, height: float, buffer: floa
     print("Latitudes", min_lat - lat_buff, max_lat + lat_buff)
     print("Longitudes", min_long - long_buff, max_long + long_buff)
 
-    lat_pairs = list(pairwise(np.arange(min_lat - lat_buff, max_lat + lat_buff, height)))
+    lat_pairs = list(
+        pairwise(np.arange(min_lat - lat_buff, max_lat + lat_buff, height)))
     long_pairs = list(pairwise(np.arange(min_long, max_long, width)))
 
     out_regions = []
@@ -138,7 +147,8 @@ def gen_region_grid_wh(network: Graph, width: float, height: float, buffer: floa
         for nlat, xlat in lat_pairs:
             out_regions.append(
                 Polygon(shell=[
-                    (nlong, nlat), (nlong, xlat), (xlong, xlat), (xlong, nlat), (nlong, nlat)
+                    (nlong, nlat), (nlong, xlat), (xlong,
+                                                   xlat), (xlong, nlat), (nlong, nlat)
                 ])
             )
 
@@ -185,8 +195,10 @@ def filter_network_by_region(network: Graph, raw_region: Polygon | MultiPolygon)
 
 # Will eventually be put in strategies.py
 def rand_point_in_region(
-        distribution=stat.uniform,
-        max_iter: int = 50
+    distribution=stat.uniform,
+    cache_location=None,
+    max_iter: int = 50,
+    **kwargs
 ) -> Callable:
     """
     Constructs a function which accepts a point and a region, which returns a random point in the region. The provided point is discarded. This is meant to bind into the obfuscate_network function as an available strategy, which is why it needs to be able to accept a point.
@@ -197,6 +209,7 @@ def rand_point_in_region(
     Outputs:
     - point_gen (Callable[shapely.Point, shapely.Polygon | shapely.MultiPolygon -> shapely.Point]): A function which expects a point and a region, which (when called) outputs a random point in the region.
     """
+
     def _rand_point_in_triangle(triangle):
         a, b, c = triangle
         r1 = random.random()
@@ -218,28 +231,39 @@ def rand_point_in_region(
         elif region.geom_type == "Polygon":
             focused_region = region
         else:
-            raise TypeError(f"Cannot find a random point in object of type {type(region)}")
+            raise TypeError(
+                f"Cannot find a random point in object of type {type(region)}")
 
         minx, miny, maxx, maxy = focused_region.bounds
 
         for _ in range(max_iter):
-            cpx = distribution.rvs(loc=minx, scale=maxx - minx)
-            cpy = distribution.rvs(loc=miny, scale=maxy - miny)
-            candidate_point = Point(cpx, cpy)
+            cand_coords = distribution.rvs(**kwargs)
+            candidate_point = Point(*cand_coords)
 
             if focused_region.contains(candidate_point):
                 return candidate_point
+
+        # return None
 
         # If the loop proceeds past this point, we use the slower solution that is guaranteed to converge
 
         print("Iterations exceeded. Proceeding to triangulation algorithm")
         coords = np.array(focused_region.exterior.coords)
+        xs = [p[0] for p in coords]
+        ys = [p[1] for p in coords]
         segments = [(i, (i+1) % len(coords)) for i in range(len(coords))]
 
-        triangulated = tri.triangulate({"vertices": coords, "segments": segments}, 'q')
+        triangulated = tri.triangulate(
+            {"vertices": coords, "segments": segments}, 'pq')
 
         try:
-            tris = [triangulated['vertices'][triangle] for triangle in triangulated['triangles']]
+            tris = [triangulated['vertices'][triangle]
+                    for triangle in triangulated['triangles']]
+
+            # tri.compare(plt, dict(vertices=coords,
+            #           segments=segments), triangulated)
+            plt.show()
+
         except Exception as e:
             print(triangulated)
             exit(1)
@@ -290,7 +314,8 @@ def k_nearest_neighbors(
 
         for a, data in network.nodes(data=True):
             if len(distances) < k:
-                distances.append(coord.distance(Point(data["long"], data["lat"])))
+                distances.append(coord.distance(
+                    Point(data["long"], data["lat"])))
                 needs_sort = True
             else:
                 if needs_sort:
@@ -310,7 +335,7 @@ def k_nearest_neighbors(
     return point_gen
 
 
-def display(regions: GeoDataFrame, network: Graph, title: str = None, ax=None) -> None:
+def display(regions: GeoDataFrame, network: Graph, title: str = None, ax=None, show=True, add_basemap=True) -> None:
     """
     Overlays a collection of regions and a network over a world map, then displays the plot.
     Inputs:
@@ -320,50 +345,84 @@ def display(regions: GeoDataFrame, network: Graph, title: str = None, ax=None) -
     Outpus: None
     Side Effects: A pop-up window will open with the completed plot displayed. Code execution will continue while the pop-up window is open, but the program will not exit until all pop-up windows are closed.
     """
+    pos = {node: (data['long'], data['lat'])
+           for node, data in network.nodes(data=True)}
+
     if ax is None:
-        fig, ax=plt.subplots(figsize=(10, 10))
+        fig, ax = plt.subplots(figsize=(10, 10))
 
     regions.plot(ax=ax, color="lightgray", edgecolor="black", alpha=0.5)
-
-    if network is not None:
-        pos={node: (data['long'], data['lat']) for node, data in network.nodes(data=True)}
-
-        draw(network, pos, ax=ax, node_size=500 / len(network.nodes), edge_color="blue", node_color="red", with_labels=False)
-    ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
+    draw(network, pos, ax=ax, node_size=500 / len(network.nodes),
+         edge_color="blue", node_color="red", with_labels=False)
+    if add_basemap:
+        ctx.add_basemap(
+            ax, source=ctx.providers.OpenStreetMap.Mapnik, crs=regions.crs)
 
     plt.title(title)
-    plt.show()
+    if show:
+        plt.show()
+
+
+def heatmap(regions: GeoDataFrame, networks: list[Graph], title: str = None, ax=None, show=True) -> None:
+    pos = [(data['long'], data['lat']) for network in networks for _,
+           data in network.nodes(data=True)]
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 10))
+
+    xmin, ymin, xmax, ymax = regions.total_bounds
+
+    xs = [val[0] for val in pos]
+    ys = [val[1] for val in pos]
+
+    Z, xedges, yedges = np.histogram2d(xs, ys, bins=200, density=False, range=[
+                                       [xmin, xmax], [ymin, ymax]])
+    Z = gaussian_filter(Z, sigma=2)
+    X, Y = np.meshgrid(xedges, yedges)
+
+    pcm = ax.pcolormesh(X, Y, Z.T, cmap="Blues")
+    plt.colorbar(pcm, ax=ax)
+
+    regions.boundary.plot(ax=ax, edgecolor="black", linewidth=3)
+
+    plt.title(title)
+    if show:
+        plt.show()
 
 
 def wasserstein(old_network: Graph, new_networks: list[Graph], ax=None) -> float:
-    old_edge_distances=[]
+    old_edge_distances = []
     for u, v in old_network.edges:
-        upos=(old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
-        vpos=(old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
+        upos = (old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
+        vpos = (old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
 
-        old_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
-    old_span=max(old_edge_distances) - min(old_edge_distances)
-    old_edge_distances=[(x - min(old_edge_distances)) / old_span for x in old_edge_distances]
+        old_edge_distances.append(
+            sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+    old_span = max(old_edge_distances) - min(old_edge_distances)
+    old_edge_distances = [(x - min(old_edge_distances)) /
+                          old_span for x in old_edge_distances]
 
-    sorted_old=np.sort(old_edge_distances)
-    cdf1=np.arange(1, len(sorted_old) + 1) / len(sorted_old)
+    sorted_old = np.sort(old_edge_distances)
+    cdf1 = np.arange(1, len(sorted_old) + 1) / len(sorted_old)
 
-    new_cdfs=[]
+    new_cdfs = []
     for new_network in new_networks:
-        new_edge_distances=[]
+        new_edge_distances = []
         for u, v in new_network.edges:
-            upos=(new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
-            vpos=(new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
+            upos = (new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
+            vpos = (new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
 
-            new_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
-        new_span=max(new_edge_distances) - min(new_edge_distances)
-        new_edge_distances=[(x - min(new_edge_distances)) / new_span for x in new_edge_distances]
+            new_edge_distances.append(
+                sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+        new_span = max(new_edge_distances) - min(new_edge_distances)
+        new_edge_distances = [
+            (x - min(new_edge_distances)) / new_span for x in new_edge_distances]
 
-        sorted_new=np.sort(new_edge_distances)
+        sorted_new = np.sort(new_edge_distances)
 
         new_cdfs.append(np.arange(1, len(sorted_new) + 1) / len(sorted_new))
 
-    avg_new_cdf=np.mean(np.array(new_cdfs), axis=0)
+    avg_new_cdf = np.mean(np.array(new_cdfs), axis=0)
     if ax is not None:
         ax.step(sorted_old, cdf1)
         ax.step(sorted_new, avg_new_cdf)
@@ -372,25 +431,29 @@ def wasserstein(old_network: Graph, new_networks: list[Graph], ax=None) -> float
 
 
 def kolmogorov_smirnov(old_network: Graph, new_networks: list[Graph]) -> float:
-    old_edge_distances=[]
+    old_edge_distances = []
     for u, v in old_network.edges:
-        upos=(old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
-        vpos=(old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
+        upos = (old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
+        vpos = (old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
 
-        old_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
-    old_span=max(old_edge_distances) - min(old_edge_distances)
-    old_edge_distances=[(x - min(old_edge_distances)) / old_span for x in old_edge_distances]
+        old_edge_distances.append(
+            sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+    old_span = max(old_edge_distances) - min(old_edge_distances)
+    old_edge_distances = [(x - min(old_edge_distances)) /
+                          old_span for x in old_edge_distances]
 
-    all_new_edge_distances=[]
+    all_new_edge_distances = []
     for new_network in new_networks:
-        new_edge_distances=[]
+        new_edge_distances = []
         for u, v in new_network.edges:
-            upos=(new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
-            vpos=(new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
+            upos = (new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
+            vpos = (new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
 
-            new_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
-        new_span=max(new_edge_distances) - min(new_edge_distances)
-        new_edge_distances=[(x - min(new_edge_distances)) / new_span for x in new_edge_distances]
+            new_edge_distances.append(
+                sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+        new_span = max(new_edge_distances) - min(new_edge_distances)
+        new_edge_distances = [
+            (x - min(new_edge_distances)) / new_span for x in new_edge_distances]
 
         all_new_edge_distances.extend(new_edge_distances)
 
@@ -398,21 +461,23 @@ def kolmogorov_smirnov(old_network: Graph, new_networks: list[Graph]) -> float:
 
 
 def absolute_distance(old_network: Graph, new_networks: list[Graph]) -> list[float]:
-    old_edge_distances=[]
+    old_edge_distances = []
     for u, v in old_network.edges:
-        upos=(old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
-        vpos=(old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
+        upos = (old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
+        vpos = (old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
 
-        old_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+        old_edge_distances.append(
+            sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
 
-    all_new_edge_distances=[]
+    all_new_edge_distances = []
     for new_network in new_networks:
-        new_edge_distances=[]
+        new_edge_distances = []
         for u, v in new_network.edges:
-            upos=(new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
-            vpos=(new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
+            upos = (new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
+            vpos = (new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
 
-            new_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+            new_edge_distances.append(
+                sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
         all_new_edge_distances.append(new_edge_distances)
 
     averaged_new_edge_distances = np.mean(all_new_edge_distances, axis=0)
@@ -421,21 +486,23 @@ def absolute_distance(old_network: Graph, new_networks: list[Graph]) -> list[flo
 
 
 def normal_signed_distance(old_network: Graph, new_networks: list[Graph]) -> list[float]:
-    old_edge_distances=[]
+    old_edge_distances = []
     for u, v in old_network.edges:
-        upos=(old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
-        vpos=(old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
+        upos = (old_network.nodes[u]["long"], old_network.nodes[u]["lat"])
+        vpos = (old_network.nodes[v]["long"], old_network.nodes[v]["lat"])
 
-        old_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+        old_edge_distances.append(
+            sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
 
-    all_new_edge_distances=[]
+    all_new_edge_distances = []
     for new_network in new_networks:
-        new_edge_distances=[]
+        new_edge_distances = []
         for u, v in new_network.edges:
-            upos=(new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
-            vpos=(new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
+            upos = (new_network.nodes[u]["long"], new_network.nodes[u]["lat"])
+            vpos = (new_network.nodes[v]["long"], new_network.nodes[v]["lat"])
 
-            new_edge_distances.append(sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
+            new_edge_distances.append(
+                sqrt((upos[0] - vpos[0])**2 + (upos[1]-vpos[1])**2))
         all_new_edge_distances.append(new_edge_distances)
 
     averaged_new_edge_distances = np.mean(all_new_edge_distances, axis=0)
