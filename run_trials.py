@@ -115,6 +115,7 @@ def test_states(trial_states: list[str]):
             avg_area = np.mean(
                 [county.area for county in counties_regions['geometry']])
             trial_radius = sqrt(avg_area / (2*pi))
+            trial_side_length = sqrt(avg_area)
 
             for trial in range(iterations_per_state):
                 trial_start = datetime.now()
@@ -123,8 +124,8 @@ def test_states(trial_states: list[str]):
                     dataset, state_geom)
                 focused_network_counties: nx.Graph = focused_network_tile.copy()
 
-                tiled_regions: gp.GeoSeries = gj.gen_region_grid_rc(
-                    focused_network_tile, 10, 10)
+                tiled_regions: gp.GeoSeries = gj.gen_region_grid_wh(
+                    focused_network_tile, trial_side_length, trial_side_length)
 
                 current_time = datetime.now()
                 overhead = (current_time - trial_start) / \

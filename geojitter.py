@@ -237,7 +237,11 @@ def rand_point_in_region(
         minx, miny, maxx, maxy = focused_region.bounds
 
         for _ in range(max_iter):
-            cand_coords = distribution.rvs(**kwargs)
+            cand_coords = distribution.rvs(
+                loc=((maxx+minx)/2, (maxy+miny)/2),
+                scale=((maxx-minx)/2, (maxy-miny)/2),
+                **kwargs
+            )
             candidate_point = Point(*cand_coords)
 
             if focused_region.contains(candidate_point):
