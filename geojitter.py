@@ -4,7 +4,7 @@ from typing import Callable
 from itertools import pairwise
 import os
 
-from networkx import Graph, draw
+from networkx import Graph, draw, betweenness_centrality
 from geopandas import GeoDataFrame, GeoSeries
 from shapely import Polygon, MultiPolygon, Point
 import matplotlib.pyplot as plt
@@ -48,8 +48,6 @@ def obfuscated_network(
         if new_point is None:
             if fail_graceful:
                 print(f"Unable to obfuscate point {point}. Continuing...")
-                nodes[point]["long"] = 0
-                nodes[point]["lat"] = 0
             else:
                 raise Exception(f"Unable to obfuscate point {point}")
         else:
@@ -85,8 +83,6 @@ def gen_region_grid_rc(network: Graph, rows: int, cols: int, buffer: float = 0.1
 
     lat_buff = buffer*(max_lat - min_lat)
     long_buff = buffer*(max_long - min_long)
-    # print("Latitudes", min_lat - lat_buff, max_lat + lat_buff)
-    # print("Longitudes", min_long - long_buff, max_long + long_buff)
 
     lat_pairs = list(pairwise(np.linspace(
         min_lat - lat_buff, max_lat + lat_buff, rows + 1)))
@@ -135,8 +131,6 @@ def gen_region_grid_wh(network: Graph, width: float, height: float, buffer: floa
 
     lat_buff = buffer*(max_lat - min_lat)
     long_buff = buffer*(max_long - min_long)
-    print("Latitudes", min_lat - lat_buff, max_lat + lat_buff)
-    print("Longitudes", min_long - long_buff, max_long + long_buff)
 
     lat_pairs = list(
         pairwise(np.arange(min_lat - lat_buff, max_lat + lat_buff, height)))
@@ -247,8 +241,6 @@ def rand_point_in_region(
             if focused_region.contains(candidate_point):
                 return candidate_point
 
-        # return None
-
         # If the loop proceeds past this point, we use the slower solution that is guaranteed to converge
 
         print("Iterations exceeded. Proceeding to triangulation algorithm")
@@ -257,25 +249,23 @@ def rand_point_in_region(
         ys = [p[1] for p in coords]
         segments = [(i, (i+1) % len(coords)) for i in range(len(coords))]
 
-        triangulated = tri.triangulate(
-            {"vertices": coords, "segments": segments}, 'pq')
-
         try:
+            triangulated = tri.triangulate(
+                {"vertices": coords, "segments": segments}, 'pq')
             tris = [triangulated['vertices'][triangle]
                     for triangle in triangulated['triangles']]
-
-            # tri.compare(plt, dict(vertices=coords,
-            #           segments=segments), triangulated)
-            plt.show()
-
         except Exception as e:
+            print("Is this what's happening here?")
+            print(e)
             print(triangulated)
-            exit(1)
+        print("Part C")
         areas = [_triangle_area(*triangle) for triangle in tris]
         area_sum = sum(areas)
         weights = [a / area_sum for a in areas]
 
+        print("Part D")
         chosen_tri = random.choices(tris, weights=weights, k=1)[0]
+        print(chosen_tri)
         return _rand_point_in_triangle(chosen_tri)
 
     return point_gen
@@ -462,6 +452,33 @@ def kolmogorov_smirnov(old_network: Graph, new_networks: list[Graph]) -> float:
         all_new_edge_distances.extend(new_edge_distances)
 
     return stat.kstest(old_edge_distances, all_new_edge_distances).statistic
+
+
+def analyze_betweenness_centrality(old_network: Graph, new_networks: list[Graph]) -> dict:
+    # Compute betweenness for the old network (if you want to compare later)
+    old_betweenness = betweenness_centrality(old_network, weight="distance")
+
+    # Initialize sums and counts for averaging
+    betweenness_sum = {node: 0.0 for node in old_network.nodes}
+    betweenness_count = {node: 0 for node in old_network.nodes}
+
+    # Compute betweenness for each new network
+    for new_network in new_networks:
+        new_betweenness = betweenness_centrality(
+            new_network, weight="distance")
+        for node, value in new_betweenness.items():
+            if node in betweenness_sum:  # only average nodes present in the old network
+                betweenness_sum[node] += value
+                betweenness_count[node] += 1
+
+    # Compute averages (ignore nodes not present in any new network)
+    avg_betweenness = {
+        node: betweenness_sum[node] / betweenness_count[node]
+        for node in betweenness_sum
+        if betweenness_count[node] > 0
+    }
+
+    return avg_betweenness
 
 
 def absolute_distance(old_network: Graph, new_networks: list[Graph]) -> list[float]:

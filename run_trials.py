@@ -1,10 +1,8 @@
 from dataclasses import dataclass, asdict
-from itertools import pairwise
 from pathlib import Path
 import pickle
 from typing import Hashable
 from datetime import datetime, timedelta
-import threading
 from math import pi, sqrt
 
 import networkx as nx
@@ -12,9 +10,6 @@ import numpy as np
 import geopandas as gp
 import pandas as pd
 import shapely as shp
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-from matplotlib.ticker import FuncFormatter
 
 import geojitter as gj
 
@@ -39,6 +34,20 @@ def point_converter(node: Hashable, data: dict) -> tuple[float, float]:
     return (data['long'], data['lat'])
 
 
+def dictwise_subtract(left: dict, right: dict) -> dict:
+    """
+    If a key exists in both dicts, then the resulting dict's value for that key will be left[key] - right[key].
+    All other keys are merged into the resulting dict.
+    """
+    out = right.copy() | left.copy()
+
+    for key, value in right.items():
+        if key in left:
+            out[key] -= value
+
+    return out
+
+
 @dataclass
 class TrialAnalytics:
     dataset: int
@@ -50,36 +59,28 @@ class TrialAnalytics:
     region_time: int
 
 
-@dataclass
-class StateAnalytics:
-    dataset: int
-    state: int
-
-    wass_rad: float
-    wass_tile: float
-    wass_region: float
-
-    ks_rad: float
-    ks_tile: float
-    ks_region: float
-
-    quartiles_rad: list[float]
-    quartiles_tile: list[float]
-    quartiles_region: list[float]
-
-
 all_trial_states = all_states['NAME'].unique()
 iterations_per_state = 1
 
 trial_analytics = list()
-state_analytics = list()
+
+
+def add_weights(G: nx.Graph) -> None:
+    for e in G.edges:
+        start = e[0]
+        end = e[1]
+
+        startx, starty = point_converter(start, G.nodes[start])
+        endx, endy = point_converter(end, G.nodes[end])
+
+        G.edges[e]["distance"] = sqrt((endx-startx)**2 + (endy-starty)**2)
 
 
 def test_states(trial_states: list[str]):
     for i, dataset in enumerate([gowalla, brightkite]):
         for j, trial_state in enumerate(trial_states):
-            fig = plt.figure()
-            gs = GridSpec(2, 3, height_ratios=[1, 1])
+            state_results_dir = output_path + f"/{trial_state}/"
+            Path(state_results_dir).mkdir(parents=True, exist_ok=True)
 
             def region_accessor_tile(node: Hashable) -> shp.Polygon:
                 if "region" not in focused_network_tile.nodes(data=True)[node]:
@@ -122,7 +123,22 @@ def test_states(trial_states: list[str]):
 
                 focused_network_tile: nx.Graph = gj.filter_network_by_region(
                     dataset, state_geom)
+                add_weights(focused_network_tile)
                 focused_network_counties: nx.Graph = focused_network_tile.copy()
+                add_weights(focused_network_counties)
+
+                Path(state_results_dir +
+                     "radius/").mkdir(parents=True, exist_ok=True)
+                Path(state_results_dir + "tile/").mkdir(parents=True, exist_ok=True)
+                Path(state_results_dir +
+                     "region/").mkdir(parents=True, exist_ok=True)
+
+                with open(state_results_dir + "radius/original_network.pkl", "wb+") as f:
+                    pickle.dump(focused_network_tile, f)
+                with open(state_results_dir + "tile/original_network.pkl", "wb+") as f:
+                    pickle.dump(focused_network_tile, f)
+                with open(state_results_dir + "region/original_network.pkl", "wb+") as f:
+                    pickle.dump(focused_network_counties, f)
 
                 tiled_regions: gp.GeoSeries = gj.gen_region_grid_wh(
                     focused_network_tile, trial_side_length, trial_side_length)
@@ -139,8 +155,13 @@ def test_states(trial_states: list[str]):
                     strategy=gj.rand_point_by_radius(trial_radius),
                     fail_graceful=False
                 ))
+                add_weights(by_radii[-1])
                 radii_time = (datetime.now() - current_time) / \
                     timedelta(microseconds=1)
+
+                with open(state_results_dir + f"radius/jittered_network_{trial}.pkl", "wb+") as f:
+                    pickle.dump(by_radii[-1], f)
+
                 current_time = datetime.now()
 
                 by_tile.append(gj.obfuscated_network(
@@ -151,8 +172,13 @@ def test_states(trial_states: list[str]):
                     strategy=gj.rand_point_in_region(),
                     fail_graceful=False
                 ))
+                add_weights(by_tile[-1])
                 tile_time = (datetime.now() - current_time) / \
                     timedelta(microseconds=1)
+
+                with open(state_results_dir + f"tile/jittered_network_{trial}.pkl", "wb+") as f:
+                    pickle.dump(by_tile[-1], f)
+
                 current_time = datetime.now()
 
                 by_region.append(gj.obfuscated_network(
@@ -161,10 +187,14 @@ def test_states(trial_states: list[str]):
                     region_accessor=region_accessor_counties,
                     point_converter=point_converter,
                     strategy=gj.rand_point_in_region(),
-                    fail_graceful=False
+                    fail_graceful=True
                 ))
+                add_weights(by_region[-1])
                 region_time = (datetime.now() - current_time) / \
                     timedelta(microseconds=1)
+
+                with open(state_results_dir + f"region/jittered_network_{trial}.pkl", "wb+") as f:
+                    pickle.dump(by_region[-1], f)
 
                 trial_analytics.append(asdict(TrialAnalytics(
                     dataset=i,
@@ -176,85 +206,8 @@ def test_states(trial_states: list[str]):
                     region_time=region_time
                 )))
 
-            ax1 = fig.add_subplot(gs[0, 0])
-            ax2 = fig.add_subplot(gs[0, 1])
-            ax3 = fig.add_subplot(gs[0, 2])
-            ax4 = fig.add_subplot(gs[1, :])
-
-            ax1.set_title("By radius")
-            ax2.set_title("By tile")
-            ax3.set_title("By county")
-
-            wasserstein_rad = gj.wasserstein(
-                focused_network_tile, by_radii, ax1)
-            ks_rad = gj.kolmogorov_smirnov(focused_network_tile, by_radii)
-
-            wasserstein_tile = gj.wasserstein(
-                focused_network_tile, by_tile, ax2)
-            ks_tile = gj.kolmogorov_smirnov(focused_network_tile, by_tile)
-
-            wasserstein_region = gj.wasserstein(
-                focused_network_counties, by_region, ax3)
-            ks_region = gj.kolmogorov_smirnov(
-                focused_network_counties, by_region)
-
-            ax1.text(0.2, 0.1, f"Wass. Distance = {
-                     wasserstein_rad:.4f}\nKS GoF = {ks_rad:.4f}", size='xx-small')
-            ax2.text(0.2, 0.1, f"Wass. Distance = {wasserstein_tile:.4f}\nKS GoF = {
-                     ks_tile:.4f}", size='xx-small')
-            ax3.text(0.2, 0.1, f"Wass. Distance = {wasserstein_region:.4f}\nKS GoF = {
-                     ks_region:.4f}", size='xx-small')
-
-            box1 = gj.normal_signed_distance(focused_network_tile, by_radii)
-            box2 = gj.normal_signed_distance(focused_network_tile, by_tile)
-            box3 = gj.normal_signed_distance(
-                focused_network_counties, by_region)
-
-            state_analytics.append(asdict(StateAnalytics(
-                dataset=i,
-                state=j,
-                wass_rad=wasserstein_rad,
-                wass_tile=wasserstein_tile,
-                wass_region=wasserstein_region,
-                ks_rad=ks_rad,
-                ks_tile=ks_tile,
-                ks_region=ks_region,
-                quartiles_rad=np.percentile(
-                    box1, [0, 25, 50, 75, 100], method='midpoint'),
-                quartiles_tile=np.percentile(
-                    box2, [0, 25, 50, 75, 100], method='midpoint'),
-                quartiles_region=np.percentile(
-                    box3, [0, 25, 50, 75, 100], method='midpoint')
-            )))
-
-            ax4.boxplot([box1, box2, box3])
-            ax4.set_title("Percentage change to edge length")
-            ax4.set_xticklabels(["Radius", "Tile", "County"])
-            ax4.yaxis.set_major_formatter(
-                FuncFormatter(lambda x, _: f'{x*100:.0f}%'))
-
-            if i == 1:  # Brightkite
-                fig.suptitle(f"Brightkite Results: {trial_state}")
-                plt.tight_layout()
-                plt.savefig(f"{output_path}/bk-{trial_state}.png")
-            elif i == 0:
-                fig.suptitle(f"Gowalla Results: {trial_state}")
-                plt.tight_layout()
-                plt.savefig(f"{output_path}/gw-{trial_state}.png")
-            plt.close()
-
             print(trial_state, "is done!")
 
-
-# TODO: Multithreading
-
-# threads = [threading.Thread(target=test_states, args=(list(all_trial_states[i:j]),)) for i, j in pairwise(np.arange(0, len(all_trial_states), 10))]
-
-# for t in threads:
-#     t.start()
-#
-# for t in threads:
-#     t.join()
 
 test_states(all_trial_states)
 
@@ -262,6 +215,4 @@ print("All complete!")
 
 
 trial_analytics_df = pd.DataFrame(trial_analytics)
-state_analytics_df = pd.DataFrame(state_analytics)
 trial_analytics_df.to_pickle(f"{output_path}/trial_analytics.pkl")
-state_analytics_df.to_pickle(f"{output_path}/state_analytics.pkl")
