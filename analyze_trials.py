@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import pickle
+import sys
 
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -132,3 +134,8 @@ plt.savefig(f"{output_path}/bcd-{trial_state}.png")
 plt.close()
 
 print(trial_state, "is done!")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: py analyze_trials.py <trial_folder>")
+        exit(0)

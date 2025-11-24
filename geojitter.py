@@ -1,19 +1,21 @@
+import faulthandler
 import random
+import sys
 from math import pi, cos, sin, sqrt
 from typing import Callable
 from itertools import pairwise
-import os
 
 from networkx import Graph, draw, betweenness_centrality
 from geopandas import GeoDataFrame, GeoSeries
 from shapely import Polygon, MultiPolygon, Point
 import matplotlib.pyplot as plt
-from matplotlib import colormaps
 import contextily as ctx
 import scipy.stats as stat
 from scipy.ndimage import gaussian_filter
 import numpy as np
 import triangle as tri
+
+faulthandler.enable()
 
 
 def obfuscated_network(
@@ -218,6 +220,9 @@ def rand_point_in_region(
         return 0.5 * np.abs(np.cross(b - a, c - a))
 
     def point_gen(point: Point, region: Polygon | MultiPolygon) -> Point:
+        if region is None:
+            return None
+
         if region.geom_type == "MultiPolygon":
             # TODO: It's possible there are better ways to choose the region than this. Will likely modify the behavior of the distribution
             # The first place this comes to mind would be where different sub-polygons have different areas. This would treat them all equally, giving outsized representation to smaller regions
@@ -245,25 +250,24 @@ def rand_point_in_region(
 
         print("Iterations exceeded. Proceeding to triangulation algorithm")
         coords = np.array(focused_region.exterior.coords)
-        xs = [p[0] for p in coords]
-        ys = [p[1] for p in coords]
         segments = [(i, (i+1) % len(coords)) for i in range(len(coords))]
 
-        try:
-            triangulated = tri.triangulate(
-                {"vertices": coords, "segments": segments}, 'pq')
-            tris = [triangulated['vertices'][triangle]
-                    for triangle in triangulated['triangles']]
-        except Exception as e:
-            print("Is this what's happening here?")
-            print(e)
-            print(triangulated)
-        print("Part C")
+        print("If it breaks, it happens right after this", file=sys.stderr)
+        print("Coords:", coords)
+        triangulated = tri.triangulate(
+            {"vertices": coords, "segments": segments}, 'p')
+        print("Looks like it didn't break this time")
+        tris = [triangulated['vertices'][triangle]
+                for triangle in triangulated['triangles']]
+        # try:
+        # except Exception as e:
+        #     print("Is this what's happening here?")
+        #     print(e)
+        #     print(triangulated)
         areas = [_triangle_area(*triangle) for triangle in tris]
         area_sum = sum(areas)
         weights = [a / area_sum for a in areas]
 
-        print("Part D")
         chosen_tri = random.choices(tris, weights=weights, k=1)[0]
         print(chosen_tri)
         return _rand_point_in_triangle(chosen_tri)
