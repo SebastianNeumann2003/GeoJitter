@@ -78,8 +78,7 @@ def add_weights(G: nx.Graph) -> None:
 def test_states(trial_states: list[str]):
     for i, dataset in enumerate([gowalla, brightkite]):
         for j, trial_state in enumerate(trial_states):
-            state_results_dir = output_path + \
-                f"{"bk" if i == 1 else "gw"}/{trial_state}/"
+            state_results_dir = output_path + f"{'bk' if i == 1 else 'gw'}/{trial_state}/"
             Path(state_results_dir).mkdir(parents=True, exist_ok=True)
 
             # def region_accessor_tile(node: Hashable) -> shp.Polygon:
@@ -105,10 +104,12 @@ def test_states(trial_states: list[str]):
             trial_side_length = sqrt(avg_area)
 
             # Remove after uncommenting below
-            focused_network_tile: nx.Graph = gj.filter_network_by_region(
-                dataset, state_geom)
+            focused_network_tile: nx.Graph = gj.filter_network_by_region(dataset, state_geom)
+            add_weights(focused_network_tile)
             focused_network_counties: nx.Graph = focused_network_tile.copy()
             add_weights(focused_network_counties)
+            focused_network_knn: nx.Graph = focused_network_tile.copy()
+            add_weights(focused_network_knn)
 
             # for trial in range(iterations_per_state):
             #     trial_start = datetime.now()
@@ -206,48 +207,74 @@ def test_states(trial_states: list[str]):
             #
             # print(trial_state, "is done with radius and tiling!")
 
+        # for j, trial_state in enumerate(trial_states):
+        #     for trial in range(iterations_per_state):
+        #         def region_accessor_counties(node: Hashable) -> shp.Polygon:
+        #             data = focused_network_counties.nodes[node]
+        #
+        #             if "region" not in data:
+        #                 for index, region_entry in counties_regions.iterrows():
+        #                     region = region_entry['geometry']
+        #                     if region.contains(shp.Point(data["long"], data["lat"])):
+        #                         return region
+        #                 return None
+        #
+        #             region_name = focused_network_counties.nodes[node]["region"]
+        #             return counties_regions.iloc[region_name].loc['geometry']
+        #
+        #         counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
+        #         by_region = []
+        #         state_results_dir = output_path + \
+        #             f"{'bk' if i == 1 else 'gw'}/{trial_state}/"
+        #         Path(state_results_dir).mkdir(parents=True, exist_ok=True)
+        #         output_file = Path(state_results_dir + f"region/jittered_network_{trial}.pkl")
+        #         region_original_path = Path(state_results_dir + "region/original_network.pkl")
+        #
+        #         if not region_original_path.is_file():
+        #             with region_original_path.open("wb+") as f:
+        #                 pickle.dump(focused_network_counties, f)
+        #
+        #         if not output_file.is_file():
+        #             by_region.append(gj.obfuscated_network(
+        #                 regions=counties_regions,
+        #                 network=focused_network_counties,
+        #                 region_accessor=region_accessor_counties,
+        #                 point_converter=point_converter,
+        #                 strategy=gj.rand_point_in_region(max_iter=10000),
+        #                 fail_graceful=True
+        #             ))
+        #             add_weights(by_region[-1])
+        #
+        #             with output_file.open("wb+") as f:
+        #                 pickle.dump(by_region[-1], f)
+
         for j, trial_state in enumerate(trial_states):
             for trial in range(iterations_per_state):
-                def region_accessor_counties(node: Hashable) -> shp.Polygon:
-                    data = focused_network_counties.nodes[node]
-
-                    if "region" not in data:
-                        for index, region_entry in counties_regions.iterrows():
-                            region = region_entry['geometry']
-                            if region.contains(shp.Point(data["long"], data["lat"])):
-                                return region
-                        return None
-
-                    region_name = focused_network_counties.nodes[node]["region"]
-                    return counties_regions.iloc[region_name].loc['geometry']
-
-                counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
-                by_region = []
+                by_knn = []
                 state_results_dir = output_path + \
-                    f"{"bk" if i == 1 else "gw"}/{trial_state}/"
+                    f"{'bk' if i == 1 else 'gw'}/{trial_state}/"
                 Path(state_results_dir).mkdir(parents=True, exist_ok=True)
-                output_file = Path(state_results_dir +
-                                   f"region/jittered_network_{trial}.pkl")
-                region_original_path = Path(
-                    state_results_dir + "region/original_network.pkl")
+                Path(state_results_dir + "/knn/").mkdir(parents=True, exist_ok=True)
+                output_file = Path(state_results_dir + f"knn/jittered_network_{trial}.pkl")
+                knn_original_path = Path(state_results_dir + "knn/original_network.pkl")
 
-                if not region_original_path.is_file():
-                    with region_original_path.open("wb+") as f:
-                        pickle.dump(focused_network_counties, f)
+                if not knn_original_path.is_file():
+                    with knn_original_path.open("wb+") as f:
+                        pickle.dump(focused_network_knn, f)
 
                 if not output_file.is_file():
-                    by_region.append(gj.obfuscated_network(
+                    by_knn.append(gj.obfuscated_network(
                         regions=counties_regions,
-                        network=focused_network_counties,
-                        region_accessor=region_accessor_counties,
+                        network=focused_network_knn,
+                        region_accessor=lambda x: None,  # Unused
                         point_converter=point_converter,
-                        strategy=gj.rand_point_in_region(max_iter=10000),
-                        fail_graceful=True
+                        strategy=gj.k_nearest_neighbors(10, focused_network_knn),
+                        fail_graceful=False
                     ))
-                    add_weights(by_region[-1])
+                    add_weights(by_knn[-1])
 
                     with output_file.open("wb+") as f:
-                        pickle.dump(by_region[-1], f)
+                        pickle.dump(by_knn[-1], f)
 
 
 test_states(all_trial_states)
