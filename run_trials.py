@@ -26,7 +26,7 @@ counties = gp.read_file(
     "./data_vault/cb_2023_us_county_500k/cb_2023_us_county_500k.shp")
 counties.crs = "EPSG:4326"
 
-output_path = "./trial_outputs/" + "20Nov2025"
+output_path = "./trial_outputs/" + "27Nov2025"
 
 
 def point_converter(node: Hashable, data: dict) -> tuple[float, float]:
@@ -56,6 +56,7 @@ class TrialAnalytics:
     radii_time: int
     tile_time: int
     region_time: int
+    knn_time: int
 
 
 all_trial_states = all_states['NAME'].unique()
@@ -81,13 +82,13 @@ def test_states(trial_states: list[str]):
             state_results_dir = output_path + f"{'bk' if i == 1 else 'gw'}/{trial_state}/"
             Path(state_results_dir).mkdir(parents=True, exist_ok=True)
 
-            # def region_accessor_tile(node: Hashable) -> shp.Polygon:
-            #     data = focused_network_tile.nodes[node]
-            #     if "region" not in data:
-            #         return tiled_regions[0]
-            #     else:
-            #         region_name = focused_network_tile.nodes[node]["region"]
-            #         return tiled_regions[region_name]
+            def region_accessor_tile(node: Hashable) -> shp.Polygon:
+                data = focused_network_tile.nodes[node]
+                if "region" not in data:
+                    return tiled_regions[0]
+                else:
+                    region_name = focused_network_tile.nodes[node]["region"]
+                    return tiled_regions[region_name]
 
             state_subdf = all_states.loc[all_states['NAME'] == trial_state, [
                 'STATEFP', 'geometry']]
@@ -96,6 +97,8 @@ def test_states(trial_states: list[str]):
 
             by_radii = []
             by_tile = []
+            by_region = []
+            by_knn = []
 
             counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
             avg_area = np.mean(
@@ -104,163 +107,91 @@ def test_states(trial_states: list[str]):
             trial_side_length = sqrt(avg_area)
 
             # Remove after uncommenting below
-            focused_network_tile: nx.Graph = gj.filter_network_by_region(dataset, state_geom)
+            focused_network_radius: nx.Graph = gj.filter_network_by_region(dataset, state_geom)
+            add_weights(focused_network_radius)
+            focused_network_tile: nx.Graph = focused_network_radius.copy()
             add_weights(focused_network_tile)
-            focused_network_counties: nx.Graph = focused_network_tile.copy()
-            add_weights(focused_network_counties)
+            focused_network_region: nx.Graph = focused_network_tile.copy()
+            add_weights(focused_network_region)
             focused_network_knn: nx.Graph = focused_network_tile.copy()
             add_weights(focused_network_knn)
 
-            # for trial in range(iterations_per_state):
-            #     trial_start = datetime.now()
-            #
-            #     Path(state_results_dir +
-            #          "radius/").mkdir(parents=True, exist_ok=True)
-            #     Path(state_results_dir + "tile/").mkdir(parents=True, exist_ok=True)
-            #     Path(state_results_dir +
-            #          "region/").mkdir(parents=True, exist_ok=True)
-            #
-            #     focused_network_tile: nx.Graph = gj.filter_network_by_region(
-            #         dataset, state_geom)
-            #     add_weights(focused_network_tile)
-            #     focused_network_counties: nx.Graph = focused_network_tile.copy()
-            #     add_weights(focused_network_counties)
-            #
-            #     rad_original_path = Path(
-            #         state_results_dir + "radius/original_network.pkl")
-            #     tile_original_path = Path(
-            #         state_results_dir + "tile/original_network.pkl")
-            #
-            #     if not rad_original_path.is_file():
-            #         with rad_original_path.open("wb+") as f:
-            #             pickle.dump(focused_network_tile, f)
-            #     if not tile_original_path.is_file():
-            #         with tile_original_path.open("wb+") as f:
-            #             pickle.dump(focused_network_tile, f)
-            #
-            #     tiled_regions: gp.GeoSeries = gj.gen_region_grid_wh(
-            #         focused_network_tile, trial_side_length, trial_side_length)
-            #
-            #     current_time = datetime.now()
-            #     overhead = (current_time - trial_start) / \
-            #         timedelta(microseconds=1)
-            #
-            #     output_file = Path(state_results_dir +
-            #                        f"radius/jittered_network_{trial}.pkl")
-            #
-            #     if not output_file.is_file():
-            #         by_radii.append(gj.obfuscated_network(
-            #             regions=None,
-            #             network=focused_network_tile,
-            #             region_accessor=lambda x: x,
-            #             point_converter=point_converter,
-            #             strategy=gj.rand_point_by_radius(trial_radius),
-            #             fail_graceful=False
-            #         ))
-            #         add_weights(by_radii[-1])
-            #
-            #         with output_file.open("wb+") as f:
-            #             pickle.dump(by_radii[-1], f)
-            #
-            #     radii_time = (datetime.now() - current_time) / \
-            #         timedelta(microseconds=1)
-            #
-            #     current_time = datetime.now()
-            #
-            #     output_file = Path(state_results_dir +
-            #                        f"tile/jittered_network_{trial}.pkl")
-            #
-            #     if not output_file.is_file():
-            #         try:
-            #             by_tile.append(gj.obfuscated_network(
-            #                 regions=tiled_regions,
-            #                 network=focused_network_tile,
-            #                 region_accessor=region_accessor_tile,
-            #                 point_converter=point_converter,
-            #                 strategy=gj.rand_point_in_region(),
-            #                 fail_graceful=False
-            #             ))
-            #             add_weights(by_tile[-1])
-            #
-            #             with output_file.open("wb+") as f:
-            #                 pickle.dump(by_tile[-1], f)
-            #         except Exception as e:
-            #             continue
-            #
-            #     tile_time = (datetime.now() - current_time) / \
-            #         timedelta(microseconds=1)
-            #
-            #     current_time = datetime.now()
-            #
-            #     # region_time = (datetime.now() - current_time) / \
-            #     #     timedelta(microseconds=1)
-            #
-            #     # trial_analytics.append(asdict(TrialAnalytics(
-            #     #     dataset=i,
-            #     #     state=j,
-            #     #     trial_n=trial,
-            #     #     overhead_time=overhead,
-            #     #     radii_time=radii_time,
-            #     #     tile_time=tile_time,
-            #     #     region_time=region_time
-            #     # )))
-            #
-            # print(trial_state, "is done with radius and tiling!")
-
-        # for j, trial_state in enumerate(trial_states):
-        #     for trial in range(iterations_per_state):
-        #         def region_accessor_counties(node: Hashable) -> shp.Polygon:
-        #             data = focused_network_counties.nodes[node]
-        #
-        #             if "region" not in data:
-        #                 for index, region_entry in counties_regions.iterrows():
-        #                     region = region_entry['geometry']
-        #                     if region.contains(shp.Point(data["long"], data["lat"])):
-        #                         return region
-        #                 return None
-        #
-        #             region_name = focused_network_counties.nodes[node]["region"]
-        #             return counties_regions.iloc[region_name].loc['geometry']
-        #
-        #         counties_regions: gp.GeoDataFrame = counties.loc[counties['STATEFP'] == fips]
-        #         by_region = []
-        #         state_results_dir = output_path + \
-        #             f"{'bk' if i == 1 else 'gw'}/{trial_state}/"
-        #         Path(state_results_dir).mkdir(parents=True, exist_ok=True)
-        #         output_file = Path(state_results_dir + f"region/jittered_network_{trial}.pkl")
-        #         region_original_path = Path(state_results_dir + "region/original_network.pkl")
-        #
-        #         if not region_original_path.is_file():
-        #             with region_original_path.open("wb+") as f:
-        #                 pickle.dump(focused_network_counties, f)
-        #
-        #         if not output_file.is_file():
-        #             by_region.append(gj.obfuscated_network(
-        #                 regions=counties_regions,
-        #                 network=focused_network_counties,
-        #                 region_accessor=region_accessor_counties,
-        #                 point_converter=point_converter,
-        #                 strategy=gj.rand_point_in_region(max_iter=10000),
-        #                 fail_graceful=True
-        #             ))
-        #             add_weights(by_region[-1])
-        #
-        #             with output_file.open("wb+") as f:
-        #                 pickle.dump(by_region[-1], f)
-
-        for j, trial_state in enumerate(trial_states):
             for trial in range(iterations_per_state):
-                by_knn = []
-                state_results_dir = output_path + \
-                    f"{'bk' if i == 1 else 'gw'}/{trial_state}/"
-                Path(state_results_dir).mkdir(parents=True, exist_ok=True)
-                Path(state_results_dir + "/knn/").mkdir(parents=True, exist_ok=True)
-                output_file = Path(state_results_dir + f"knn/jittered_network_{trial}.pkl")
+                trial_start = datetime.now()
+
+                Path(state_results_dir + "radius/").mkdir(parents=True, exist_ok=True)
+                Path(state_results_dir + "tile/").mkdir(parents=True, exist_ok=True)
+                Path(state_results_dir + "region/").mkdir(parents=True, exist_ok=True)
+                Path(state_results_dir + "knn/").mkdir(parents=True, exist_ok=True)
+                Path(state_results_dir + "analytics/").mkdir(parents=True, exist_ok=True)
+
+                rad_original_path = Path(state_results_dir + "radius/original_network.pkl")
+                tile_original_path = Path(state_results_dir + "tile/original_network.pkl")
+                region_original_path = Path(state_results_dir + "region/original_network.pkl")
                 knn_original_path = Path(state_results_dir + "knn/original_network.pkl")
 
+                if not rad_original_path.is_file():
+                    with rad_original_path.open("wb+") as f:
+                        pickle.dump(focused_network_tile, f)
+                if not tile_original_path.is_file():
+                    with tile_original_path.open("wb+") as f:
+                        pickle.dump(focused_network_tile, f)
+                if not region_original_path.is_file():
+                    with region_original_path.open("wb+") as f:
+                        pickle.dump(focused_network_region, f)
                 if not knn_original_path.is_file():
                     with knn_original_path.open("wb+") as f:
                         pickle.dump(focused_network_knn, f)
+
+                tiled_regions: gp.GeoSeries = gj.gen_region_grid_wh(focused_network_tile, trial_side_length, trial_side_length)
+
+                current_time = datetime.now()
+                overhead = (current_time - trial_start) / timedelta(microseconds=1)
+
+                output_file = Path(state_results_dir + f"radius/jittered_network_{trial}.pkl")
+
+                if not output_file.is_file():
+                    by_radii.append(gj.obfuscated_network(
+                        regions=None,
+                        network=focused_network_tile,
+                        region_accessor=lambda x: x,
+                        point_converter=point_converter,
+                        strategy=gj.rand_point_by_radius(trial_radius),
+                        fail_graceful=False
+                    ))
+                    add_weights(by_radii[-1])
+
+                    with output_file.open("wb+") as f:
+                        pickle.dump(by_radii[-1], f)
+
+                radii_time = (datetime.now() - current_time) / timedelta(microseconds=1)
+
+                current_time = datetime.now()
+
+                output_file = Path(state_results_dir + f"tile/jittered_network_{trial}.pkl")
+
+                if not output_file.is_file():
+                    try:
+                        by_tile.append(gj.obfuscated_network(
+                            regions=tiled_regions,
+                            network=focused_network_tile,
+                            region_accessor=region_accessor_tile,
+                            point_converter=point_converter,
+                            strategy=gj.rand_point_in_region(),
+                            fail_graceful=False
+                        ))
+                        add_weights(by_tile[-1])
+
+                        with output_file.open("wb+") as f:
+                            pickle.dump(by_tile[-1], f)
+                    except Exception as e:
+                        continue
+
+                tile_time = (datetime.now() - current_time) / timedelta(microseconds=1)
+
+                current_time = datetime.now()
+
+                output_file = Path(state_results_dir + f"knn/jittered_network_{trial}.pkl")
 
                 if not output_file.is_file():
                     by_knn.append(gj.obfuscated_network(
@@ -276,6 +207,60 @@ def test_states(trial_states: list[str]):
                     with output_file.open("wb+") as f:
                         pickle.dump(by_knn[-1], f)
 
+                knn_time = (datetime.now() - current_time) / timedelta(microseconds=1)
+                current_time = datetime.now()
+
+                def region_accessor_counties(node: Hashable) -> shp.Polygon:
+                    data = focused_network_region.nodes[node]
+
+                    if "region" not in data:
+                        for index, region_entry in counties_regions.iterrows():
+                            region = region_entry['geometry']
+                            if region.contains(shp.Point(data["long"], data["lat"])):
+                                return region
+                        return None
+
+                    region_name = focused_network_region.nodes[node]["region"]
+                    return counties_regions.iloc[region_name].loc['geometry']
+
+                output_file = Path(state_results_dir + f"region/jittered_network_{trial}.pkl")
+
+                if not output_file.is_file():
+                    by_region.append(gj.obfuscated_network(
+                        regions=counties_regions,
+                        network=focused_network_region,
+                        region_accessor=region_accessor_counties,
+                        point_converter=point_converter,
+                        strategy=gj.rand_point_in_region(max_iter=1000000),
+                        fail_graceful=True
+                    ))
+                    add_weights(by_region[-1])
+
+                    with output_file.open("wb+") as f:
+                        pickle.dump(by_region[-1], f)
+
+                region_time = (datetime.now() - current_time) / timedelta(microseconds=1)
+
+                this_trial_analytics = asdict(TrialAnalytics(
+                    dataset=i,
+                    state=j,
+                    trial_n=trial,
+                    overhead_time=overhead,
+                    radii_time=radii_time,
+                    tile_time=tile_time,
+                    region_time=region_time,
+                    knn_time=knn_time
+                ))
+                output_file = Path(state_results_dir + f"analytics/trial_analytics_{trial}.pkl")
+
+                if not output_file.is_file():
+                    with output_file.open("wb+") as f:
+                        pickle.dump(this_trial_analytics, f)
+
+                trial_analytics.append(this_trial_analytics)
+
+            print(trial_state, "is done")
+
 
 test_states(all_trial_states)
 
@@ -283,4 +268,5 @@ print("All complete!")
 
 
 trial_analytics_df = pd.DataFrame(trial_analytics)
-trial_analytics_df.to_pickle(f"{output_path}/trial_analytics.pkl")
+trial_analytics_df.to_csv(f"{output_path}/trial_analytics.csv", columns=trial_analytics.columns.tolist())
+trial_analytics_df.to_pickle("./just_in_case.pkl")

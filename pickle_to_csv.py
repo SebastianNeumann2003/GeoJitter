@@ -51,7 +51,7 @@ series_entry_template = {
     "mod_perturbed": None,
 }
 
-analysis: pd.DataFrame = pd.DataFrame(columns=series_entry_template)
+analysis: pd.DataFrame = pd.read_csv("./Analysis/20Nov2025_amended.csv", index_col=0)
 
 for source in [data_source_bk, data_source_gw]:
     for state in os.listdir(source):
@@ -61,12 +61,18 @@ for source in [data_source_bk, data_source_gw]:
 
             old_btwn = nx.betweenness_centrality(original_network, weight="distance")
             old_clustering = nx.clustering(original_network, weight="distance")
-            old_mod = nx.modularity_spectrum(original_network)
+            old_mod = nx.community.modularity(original_network, weight="distance", communities=nx.community.label_propagation_communities(original_network))
 
             all_entries = []
             for net_name in os.listdir(Path(source / state / method)):
                 if "original" in net_name:
                     continue
+
+                index_string = gen_index_string(source, state, method, net_name)
+                if index_string in analysis.index:
+                    continue
+
+                print(index_string)
 
                 entry = series_entry_template.copy()
                 with Path(source / state / method / net_name).open("rb") as f:
@@ -92,16 +98,14 @@ for source in [data_source_bk, data_source_gw]:
                     entry["clust_perturbed"] = np.mean([*new_clustering.values()])
                     entry["clust_std"] = np.std([new_clustering[node] - old_clustering[node] for node in new_clustering.keys()])
 
-                    new_mod = nx.modularity_spectrum(jittered_net)
+                    new_mod = nx.community.modularity(jittered_net, weight="distance", communities=nx.community.label_propagation_communities(jittered_net))
                     entry["mod_original"] = old_mod
                     entry["mod_perturbed"] = new_mod
 
-                    index_string = gen_index_string(source, state, method, net_name)
-                    print(index_string)
                     analysis.loc[index_string] = entry
                 except KeyError as e:
                     continue
 
 print(analysis.head(5))
 Path("./Analysis/20Nov2025.csv").touch()
-analysis.to_csv("./Analysis/20Nov2025.csv", columns=analysis.columns.tolist())
+analysis.to_csv("./Analysis/20Nov2025_amended.csv", columns=analysis.columns.tolist())
